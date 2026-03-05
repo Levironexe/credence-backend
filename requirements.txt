@@ -53,15 +53,19 @@ greenlet==3.3.0
 sse-starlette==2.2.1
 
 # Financial Analysis & ML
-xgboost==2.1.3  # Credit scoring model
-scikit-learn==1.5.2  # ML utilities, train/test split
-pandas<2.0.0  # Data processing (dice-ml requires <2.0)
-numpy==2.2.1  # Numerical operations
+# NOTE: These packages require Python 3.11 or 3.12 (not compatible with 3.13)
+# Uncomment when using Python 3.11/3.12:
+# xgboost==2.1.3  # Credit scoring model
+# scikit-learn==1.5.2  # ML utilities, train/test split
+# pandas<2.0.0  # Data processing (dice-ml requires <2.0)
+# numpy==2.2.1  # Numerical operations
+# shap==0.46.0  # SHAP feature importance
+# dice-ml==0.11  # Counterfactual explanations (DiCE)
+# fairlearn==0.11.0  # Fairness validation
 
-# Explainability & Fairness
-shap==0.46.0  # SHAP feature importance
-dice-ml==0.11  # Counterfactual explanations (DiCE)
-fairlearn==0.11.0  # Fairness validation
+# Temporary workaround for Python 3.13 (minimal ML support)
+numpy>=1.26.0
+scikit-learn>=1.5.0
 
 # Document Processing
 pdfplumber==0.11.4  # PDF table extraction
