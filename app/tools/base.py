@@ -9,8 +9,13 @@ class BaseTool(ABC):
     """Base class for all AI agent tools."""
 
     def __init__(self):
-        self.name = self.__class__.__name__.replace("Tool", "").lower()
         self.needs_approval = False
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Tool name for registration."""
+        pass
 
     @property
     @abstractmethod
