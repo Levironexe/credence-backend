@@ -1,15 +1,17 @@
 """
-LangGraph Agent for Cybersecurity Investigation
+LangGraph Agent for SME Loan Assessment
 
 This module implements a multi-step reasoning agent using LangGraph for
-cybersecurity analysis, threat detection, and incident investigation.
+SME loan analysis, credit scoring, and risk assessment.
 
-The agent follows a 5-node graph structure:
-1. Planning: Assess query and determine investigation approach
-2. Tool Selection: Choose appropriate tools based on the plan
-3. Tool Execution: Run selected tools to gather information
-4. Analysis: Correlate findings and assess threats
-5. Response Generation: Format final report for user
+The agent follows a multi-node graph structure:
+1. Planning: Assess loan application and determine analysis approach
+2. Data Completeness Check: Identify missing critical fields
+3. Tool Selection: Choose appropriate financial analysis tools
+4. Tool Execution: Run selected tools to gather financial data
+5. Credit Scoring: Calculate credit score and default probability
+6. Analysis: Synthesize findings and risk assessment
+7. Response Generation: Format final credit report
 
 The agent maintains compatibility with the existing gateway interface,
 returning OpenAI-compatible SSE chunks for seamless frontend integration.
@@ -31,48 +33,67 @@ logger = logging.getLogger(__name__)
 
 # ============ STATE DEFINITION ============
 
-class CyberSecurityState(TypedDict):
+class LoanAssessmentState(TypedDict):
     """
-    State for the cybersecurity investigation agent.
+    State for the SME loan assessment agent.
 
     This state is passed through all nodes in the graph and maintains
-    context throughout the investigation workflow.
+    context throughout the loan assessment workflow.
     """
     # Core conversation
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
-    # Investigation context
-    investigation_steps: list[str]  # Sequence of investigation actions taken
-    iocs_found: list[dict]  # List of Indicators of Compromise detected
-    severity_level: str  # Risk level: "low", "medium", "high", "critical"
-    mitre_tactics: list[str]  # MITRE ATT&CK tactics identified
+    # Assessment workflow
+    analysis_steps: list[str]  # Sequence of analysis actions taken
+    documents_processed: list[dict]  # Uploaded financial documents
+
+    # Financial metrics
+    financial_ratios: dict  # debt-to-equity, current ratio, ROE, etc.
+    revenue_trends: dict  # Time series analysis results
+    cash_flow_analysis: dict  # Cash flow ratios and patterns
+
+    # Credit assessment
+    credit_score: float  # 300-850 scale
+    default_probability: float  # 0-1
+    risk_level: str  # "low", "medium", "high", "critical"
+    risk_factors: list[str]  # Identified risk factors
+
+    # Business context
+    industry_benchmarks: dict  # Comparison to industry standards
+    alternative_data: dict  # Mobile money, POS revenue, utility payments
 
     # Tool execution tracking
     tools_used: list[str]  # Names of tools invoked
     tool_results: list[dict]  # Results from tool executions
-    pending_approval: dict | None  # Tool awaiting human approval (future feature)
+    data_completeness_score: float  # 0-1 (SHAP-based importance)
+
+    # Decision and explainability
+    loan_recommendation: dict  # approve/reject, loan amount, interest rate, terms
+    shap_explanations: dict  # Feature importance for credit score
+    counterfactuals: list[dict]  # Improvement paths for rejected applicants
+    fairness_check_results: dict  # Causal fairness validation
 
     # Response generation
-    final_response: str  # Generated investigation report
+    final_response: str  # Generated credit report
 
 
 # ============ LANGGRAPH AGENT CLASS ============
 
 class LangGraphAgent:
     """
-    LangGraph-powered cybersecurity investigation agent.
+    LangGraph-powered SME loan assessment agent.
 
-    This agent orchestrates multi-step investigations using tools and LLM reasoning.
-    It implements the same interface as ClaudeClient/GeminiClient for seamless
-    integration with the existing gateway pattern.
+    This agent orchestrates multi-step loan assessments using financial analysis tools
+    and LLM reasoning. It implements the same interface as ClaudeClient/GeminiClient
+    for seamless integration with the existing gateway pattern.
 
     Usage:
         agent = LangGraphAgent()
-        agent.register_tools([tool1, tool2, ...])
+        agent.register_tools([financial_statement_analyzer, credit_score_model, ...])
 
         async for chunk in agent.stream_chat_completion(
-            model="agent/cyber-analyst",
-            messages=[{"role": "user", "content": "Analyze this IP..."}],
+            model="agent/loan-analyst",
+            messages=[{"role": "user", "content": "Assess loan for Coffee Shop Co..."}],
             temperature=0.7
         ):
             # chunk is in OpenAI-compatible format
@@ -135,13 +156,15 @@ class LangGraphAgent:
 
     def _build_graph(self) -> StateGraph:
         """
-        Build the cybersecurity investigation graph.
+        Build the SME loan assessment graph.
 
         Graph structure:
 
             START
               ↓
-          Planning (assess query, determine approach)
+          Classify (determine if loan assessment query)
+              ↓
+          Planning (assess application, determine approach)
               ↓
           Tool Selection (LLM decides which tools to use)
               ↓
@@ -160,16 +183,16 @@ class LangGraphAgent:
              ↓       ↓
             Yes      No
              ↓       ↓
-          (loop)  Analysis (correlate findings)
+          (loop)  Analysis (synthesize financial findings)
                      ↓
-                  Response (generate report)
+                  Response (generate credit report)
                      ↓
                     END
 
         Returns:
             Compiled StateGraph ready for execution
         """
-        workflow = StateGraph(CyberSecurityState)
+        workflow = StateGraph(LoanAssessmentState)
 
         # Add all nodes to the graph
         workflow.add_node("classify", self._classify_node)  # NEW: Determine if security query
@@ -227,7 +250,7 @@ class LangGraphAgent:
 
     # ============ NODE IMPLEMENTATIONS ============
 
-    async def _classify_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _classify_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 0: Classification
 
@@ -283,7 +306,7 @@ Respond with EXACTLY one word: "investigation" or "general"."""
             logger.info("💬 LLM classified as: GENERAL QUESTION")
             return {**state, "investigation_steps": ["Classified as general query"]}
 
-    async def _simple_response_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _simple_response_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node: Simple Response
 
@@ -330,7 +353,7 @@ If they want cybersecurity help, mention that you can analyze suspicious indicat
             "final_response": response.content,
         }
 
-    async def _planning_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _planning_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 1: Planning
 
@@ -346,43 +369,43 @@ If they want cybersecurity help, mention that you can analyze suspicious indicat
         messages = state["messages"]
         last_message = messages[-1].content if messages else ""
 
-        planning_prompt = """You are a cybersecurity investigation planner. Analyze this query and determine:
+        planning_prompt = """You are a senior loan officer analyzing SME loan applications. Analyze this query and determine:
 
-1. What type of investigation is needed? (log analysis, threat hunting, IOC lookup, malware analysis, incident response, etc.)
-2. What information do we have vs. what we need to gather?
-3. Initial risk assessment based on the query (low/medium/high/critical)
-4. Recommended investigation approach (2-3 sentences)
+1. What type of analysis is needed? (financial statement analysis, credit scoring, data verification, risk assessment, etc.)
+2. What financial information do we have vs. what we need to gather?
+3. Initial risk assessment based on the application (low/medium/high/critical)
+4. Recommended assessment approach (2-3 sentences)
 
-Provide a brief, actionable investigation plan."""
+Provide a brief, actionable loan assessment plan."""
 
         response = await self.llm.ainvoke([
             SystemMessage(content=planning_prompt),
             HumanMessage(content=last_message)
         ])
 
-        # Extract severity from response (heuristic-based classification)
-        severity = "medium"  # default
+        # Extract risk level from response (heuristic-based classification)
+        risk_level = "medium"  # default
         content_lower = response.content.lower()
 
-        if any(keyword in content_lower for keyword in ["critical", "urgent", "breach", "ransomware", "data exfiltration"]):
-            severity = "critical"
-        elif any(keyword in content_lower for keyword in ["high risk", "malware", "exploit", "compromise"]):
-            severity = "high"
-        elif any(keyword in content_lower for keyword in ["suspicious", "anomaly", "unusual"]):
-            severity = "medium"
-        elif any(keyword in content_lower for keyword in ["low risk", "informational", "benign"]):
-            severity = "low"
+        if any(keyword in content_lower for keyword in ["critical", "urgent", "high default risk", "fraudulent", "insolvent"]):
+            risk_level = "critical"
+        elif any(keyword in content_lower for keyword in ["high risk", "poor financials", "negative cash flow", "high leverage"]):
+            risk_level = "high"
+        elif any(keyword in content_lower for keyword in ["moderate risk", "fair", "needs review", "incomplete data"]):
+            risk_level = "medium"
+        elif any(keyword in content_lower for keyword in ["low risk", "strong financials", "good credit history"]):
+            risk_level = "low"
 
-        logger.info(f"Planning complete. Severity: {severity}")
+        logger.info(f"Planning complete. Risk level: {risk_level}")
 
         return {
             **state,
-            "investigation_steps": [f"Planning: {response.content}"],
-            "severity_level": severity,
+            "analysis_steps": [f"Planning: {response.content}"],
+            "risk_level": risk_level,
             "messages": state["messages"] + [response],
         }
 
-    async def _tool_selection_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _tool_selection_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 2: Tool Selection
 
@@ -472,7 +495,7 @@ Make your tool selection now."""
             "messages": state["messages"] + [response],
         }
 
-    async def _execute_tools_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _execute_tools_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 3: Tool Execution
 
@@ -519,7 +542,7 @@ Make your tool selection now."""
         # No tools to execute
         return state
 
-    async def _analysis_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _analysis_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 4: Analysis
 
@@ -608,7 +631,7 @@ Do NOT speculate or make up information. Use ONLY the data provided by the tools
             "investigation_steps": investigation_steps,
         }
 
-    async def _response_node(self, state: CyberSecurityState) -> Dict[str, Any]:
+    async def _response_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
         Node 5: Response Generation
 
@@ -673,7 +696,7 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
 
     # ============ CONDITIONAL EDGE FUNCTIONS ============
 
-    def _is_security_query(self, state: CyberSecurityState) -> Literal["security", "general"]:
+    def _is_security_query(self, state: LoanAssessmentState) -> Literal["security", "general"]:
         """
         Determine if the query is security-related or general.
 
@@ -690,7 +713,7 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
             return "security"
         return "general"
 
-    def _should_use_tools(self, state: CyberSecurityState) -> Literal["execute", "skip"]:
+    def _should_use_tools(self, state: LoanAssessmentState) -> Literal["execute", "skip"]:
         """
         Decide whether tools should be executed or skipped.
 
@@ -715,7 +738,7 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
         logger.debug(f"   Message content preview: {last_message.content[:200] if hasattr(last_message, 'content') else 'N/A'}")
         return "skip"
 
-    def _continue_investigation(self, state: CyberSecurityState) -> Literal["continue", "analyze"]:
+    def _continue_investigation(self, state: LoanAssessmentState) -> Literal["continue", "analyze"]:
         """
         Decide if more investigation steps are needed or if we should analyze.
 
@@ -858,7 +881,7 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
             return
 
         # Initialize investigation state
-        initial_state: CyberSecurityState = {
+        initial_state: LoanAssessmentState = {
             "messages": lc_messages,
             "investigation_steps": [],
             "iocs_found": [],
