@@ -333,12 +333,12 @@ Respond with EXACTLY one word: "investigation" or "general"."""
 Simply provide indicators in your query (e.g., "Analyze IP 45.142.213.100" or "Check domain evil.com") and I'll automatically use the appropriate tools to investigate."""
 
         # Use LLM to respond naturally to general questions
-        simple_prompt = f"""You are Aegis AI, a cybersecurity assistant.
+        simple_prompt = f"""You are Credence AI, an SME loan assessment assistant.
 
-The user has asked a general question (not related to security investigation).
+The user has asked a general question (not related to loan assessment).
 Respond naturally and helpfully.{tool_info}
 
-If they want cybersecurity help, mention that you can analyze suspicious indicators like IP addresses, domains, file hashes, and URLs using your investigation tools."""
+If they want loan assessment help, mention that you can analyze loan applications, calculate credit scores, assess financial statements, and provide lending recommendations."""
 
         response = await self.llm.ainvoke([
             SystemMessage(content=simple_prompt),
@@ -546,18 +546,17 @@ Make your tool selection now."""
         """
         Node 4: Analysis
 
-        Correlates gathered information, identifies patterns, and assesses threats.
-        Maps findings to MITRE ATT&CK framework where applicable.
+        Synthesizes financial data, identifies risk factors, and provides credit assessment.
 
         Args:
-            state: Current investigation state
+            state: Current loan assessment state
 
         Returns:
-            Updated state with analysis and MITRE mappings
+            Updated state with credit analysis and risk assessment
         """
         messages = state["messages"]
-        iocs = state.get("iocs_found", [])
-        severity = state.get("severity_level", "medium")
+        credit_score = state.get("credit_score", 0)
+        risk_level = state.get("risk_level", "medium")
         tools_used = state.get("tools_used", [])
 
         # Skip analysis if no tools were used (nothing to analyze)
@@ -565,28 +564,28 @@ Make your tool selection now."""
             logger.info("⏭️ Skipping analysis node - no tools were used")
             return state
 
-        analysis_prompt = f"""Analyze the investigation results and provide a comprehensive assessment.
+        analysis_prompt = f"""Analyze the loan assessment results and provide a comprehensive credit evaluation.
 
-**IMPORTANT:** Start your response with the heading "# 📊 Threat Analysis\n\n" followed by your analysis.
+**IMPORTANT:** Start your response with the heading "# 📊 Credit Analysis\n\n" followed by your assessment.
 
-**Investigation Context:**
-- Severity Level: {severity}
-- IOCs Detected: {len(iocs)}
+**Assessment Context:**
+- Risk Level: {risk_level}
+- Credit Score: {credit_score}
 - Tools Used: {', '.join(tools_used) if tools_used else 'None (reasoning-only)'}
 
 **CRITICAL INSTRUCTION:**
-Review the tool results in the conversation history above. The tool outputs contain actual threat intelligence data including:
-- Reputation scores
-- Threat categories
-- Geolocation information
-- WHOIS data
+Review the tool results in the conversation history above. The tool outputs contain financial data including:
+- Credit scores and score bands
+- Financial ratios (debt-to-equity, current ratio, profit margin)
+- Default probability estimates
+- Data completeness scores
 - Recommendations
 
 **Your Analysis MUST:**
-1. **Reference specific data from tool results** (reputation scores, threat levels, categories)
-2. **Map findings to MITRE ATT&CK** tactics/techniques (based on threat categories in tool output)
-3. **Provide threat assessment** using the data from tools (not speculation)
-4. **Give actionable recommendations** based on the tool's recommendations
+1. **Reference specific data from tool results** (credit scores, financial ratios, default probability)
+2. **Assess creditworthiness** based on the financial metrics provided
+3. **Identify key risk factors** from the tool outputs
+4. **Provide loan recommendation** (approve/decline, loan amount, interest rate, terms)
 
 Do NOT speculate or make up information. Use ONLY the data provided by the tools above."""
 
