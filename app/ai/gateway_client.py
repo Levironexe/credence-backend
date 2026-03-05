@@ -10,6 +10,9 @@ from app.ai.langgraph_agent import LangGraphAgent
 from app.tools.financial_analysis.statement_analyzer import financial_statement_analyzer
 from app.tools.credit_scoring.credit_score_model import credit_score_model
 from app.tools.validation.data_completeness_checker import data_completeness_checker
+from app.tools.knowledge.lending_knowledge_retriever import lending_knowledge_retriever
+from app.tools.explainability.shap_explainer import shap_explainer
+from app.tools.explainability.counterfactual_generator import counterfactual_generator
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,9 @@ class GatewayClient:
                 financial_statement_analyzer.to_langchain_tool(),
                 credit_score_model.to_langchain_tool(),
                 data_completeness_checker.to_langchain_tool(),
+                lending_knowledge_retriever.to_langchain_tool(),
+                shap_explainer.to_langchain_tool(),
+                counterfactual_generator.to_langchain_tool(),
             ]
 
             self._agent.register_tools(tools)
