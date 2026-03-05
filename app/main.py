@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth, chat, documents, vote, api_compat, files
+from app.routers import auth, chat, documents, vote, api_compat, files, health
 from app.database import engine, Base
 import uvicorn
 
@@ -25,6 +25,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(health.router)  # Health checks
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(documents.router)
