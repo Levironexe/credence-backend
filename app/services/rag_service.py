@@ -11,6 +11,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from langchain.docstore.document import Document
 from app.config import get_settings
+from app.services.cache_service import cached, cache_service
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -66,6 +67,7 @@ class RAGService:
             logger.error(f"Failed to initialize RAG service: {e}")
             raise
 
+    @cached("rag_retrieve", ttl=1800)  # Cache for 30 minutes
     async def retrieve(
         self,
         query: str,
