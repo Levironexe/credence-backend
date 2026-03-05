@@ -5,7 +5,11 @@ from app.ai.llms.claude_client import ClaudeClient
 from app.ai.llms.gemini_client import GeminiClient
 from app.ai.llms.openai_client import OpenAIClient
 from app.ai.langgraph_agent import LangGraphAgent
-from app.tools.example_ioc_tool import ExampleIOCTool
+
+# Financial Analysis Tools
+from app.tools.financial_analysis.statement_analyzer import financial_statement_analyzer
+from app.tools.credit_scoring.credit_score_model import credit_score_model
+from app.tools.validation.data_completeness_checker import data_completeness_checker
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +50,17 @@ class GatewayClient:
         """Lazy load LangGraph agent"""
         if self._agent is None:
             self._agent = LangGraphAgent()
-            example_tool = ExampleIOCTool()
-            self._agent.register_tools([example_tool.to_langchain_tool()])
+
+            # Register financial analysis tools
+            tools = [
+                financial_statement_analyzer.to_langchain_tool(),
+                credit_score_model.to_langchain_tool(),
+                data_completeness_checker.to_langchain_tool(),
+            ]
+
+            self._agent.register_tools(tools)
+            logger.info(f"Registered {len(tools)} financial analysis tools")
+
         return self._agent
 
     def get_client(self, model: str):
