@@ -10,11 +10,10 @@ from typing import List, Dict, Any, Optional
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from langchain.docstore.document import Document
-from app.config import get_settings
+from app.config import settings
 from app.services.cache_service import cached, cache_service
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 class RAGService:

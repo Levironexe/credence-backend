@@ -55,6 +55,20 @@ class Settings(BaseSettings):
     # Redis (optional, for future use)
     redis_url: str = ""
 
+    # RAG & Embeddings (for lending knowledge base)
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    rag_chunk_size: int = 512
+    rag_chunk_overlap: int = 100
+    rag_retrieval_k: int = 5
+
+    # Database connection details (parsed from database_url or set individually)
+    database_host: str = "localhost"
+    database_port: int = 5432
+    database_name: str = "credence"
+    database_user: str = "credence"
+    database_password: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
 
