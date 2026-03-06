@@ -1030,11 +1030,27 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
 
             # Format the output
             import json
-            if isinstance(output, dict):
+
+            # Handle LangChain ToolMessage format
+            if hasattr(output, 'content'):
+                # Extract content from ToolMessage
+                output_content = output.content
+                try:
+                    # Try to parse if it's a JSON string
+                    parsed_output = json.loads(output_content)
+                    formatted_output = json.dumps(parsed_output, indent=2)
+                except (json.JSONDecodeError, TypeError):
+                    formatted_output = output_content
+            elif isinstance(output, dict):
                 # Pretty print the output
                 formatted_output = json.dumps(output, indent=2)
             elif isinstance(output, str):
-                formatted_output = output
+                try:
+                    # Try to parse JSON string
+                    parsed = json.loads(output)
+                    formatted_output = json.dumps(parsed, indent=2)
+                except (json.JSONDecodeError, TypeError):
+                    formatted_output = output
             else:
                 formatted_output = str(output)
 
