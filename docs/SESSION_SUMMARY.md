@@ -102,7 +102,7 @@ INFO - LangGraph agent initialized with model: claude-haiku-4-5-20251001
 
 ### Start the Server
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 source venv/bin/activate
 uvicorn app.main:app --reload
 ```

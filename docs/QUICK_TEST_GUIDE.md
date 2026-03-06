@@ -84,7 +84,7 @@ chmod +x test_api.sh
 ### Method 3: Use Python to Test Agent Directly
 
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 source venv/bin/activate
 python << 'EOF'
 import asyncio

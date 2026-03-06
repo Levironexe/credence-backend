@@ -16,7 +16,7 @@ app.add_middleware(
         "http://localhost:3001",  # Next.js sometimes uses 3001
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
-        "https://aegis-ai-chat.vercel.app",
+        "https://credence-ai-chat.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -48,7 +48,7 @@ async def startup():
 @app.get("/")
 async def root():
     """Root endpoint"""
-    return {"message": "Aegis AI Backend", "status": "running"}
+    return {"message": "Credence AI Backend", "status": "running"}
 
 @app.get("/health")
 async def health_check():

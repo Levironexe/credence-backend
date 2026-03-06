@@ -120,7 +120,7 @@ curl http://localhost:8000/api/debug/tool-stats | jq
 
 #### Check 1: Server loaded tools
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 source venv/bin/activate
 python << 'EOF'
 from app.ai.langgraph_agent import LangGraphAgent
@@ -187,7 +187,7 @@ tail -20 logs/tools.jsonl | jq
 If you want to test without the frontend:
 
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 source venv/bin/activate
 
 # Test with Python

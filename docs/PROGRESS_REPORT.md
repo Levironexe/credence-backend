@@ -1,4 +1,4 @@
-# Aegis AI Backend - Progress Report
+# Credence AI Backend - Progress Report
 **Date**: February 25, 2025
 **Status**: Phase 1 Complete, Phase 2 In Progress
 
@@ -79,7 +79,7 @@ Assistant: "You told me to say banana" ✅
 ## 📁 **File Structure Created**
 
 ```
-aegis-ai-backend/
+credence-ai-backend/
 ├── app/
 │   ├── ai/
 │   │   ├── agents/                          # 🆕 NEW (for multi-agent system)

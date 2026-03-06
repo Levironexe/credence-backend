@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # App settings
-    app_name: str = "Aegis AI Backend"
+    app_name: str = "Credence AI Backend"
     debug: bool = False
 
     # Security

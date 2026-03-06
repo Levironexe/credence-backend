@@ -9,7 +9,7 @@
 
 ### 1. Start the Server
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 source venv/bin/activate
 uvicorn app.main:app --reload
 ```

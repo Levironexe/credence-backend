@@ -1,4 +1,4 @@
-# Aegis AI - Course Questions Presentation
+# Credence AI - Course Questions Presentation
 
 ---
 

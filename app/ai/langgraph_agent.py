@@ -455,23 +455,28 @@ Provide a brief, actionable loan assessment plan."""
 
         logger.info(f"   LLM bound with tools: {llm_with_tools}")
 
-        tool_selection_prompt = """You are selecting tools for a cybersecurity investigation.
+        tool_selection_prompt = """You are selecting tools for SME loan assessment.
 
 **Available Tools:**
-- `analyze_ioc`: Analyzes IP addresses, domains, file hashes, and URLs for threat intelligence
+- `credit_score_model`: Calculates credit scores (300-850) and default probability
+- `financial_statement_analyzer`: Analyzes balance sheets, P&L, cash flow statements
+- `data_completeness_checker`: Identifies missing critical fields ranked by importance
+- `lending_knowledge_retriever`: Retrieves lending regulations and best practices
+- `shap_explainer`: Explains credit decisions with feature importance
+- `counterfactual_generator`: Shows how to improve credit score
 
 **Your Task:**
-1. Review the investigation plan in the conversation history
-2. If the query mentions specific indicators (IP, domain, hash, URL), call the `analyze_ioc` tool
-3. If multiple indicators are present, call the tool multiple times (one per indicator)
+1. Review the assessment plan in the conversation history
+2. Select appropriate tools based on the loan application data provided
+3. Call tools in logical order (data completeness → credit scoring → explainability)
 
 **CRITICAL RULES:**
-- ALWAYS use tools when specific indicators are mentioned
+- ALWAYS use tools when loan data is provided
 - DO NOT just describe what you would do - actually call the tool
 - DO NOT make up tool results - wait for actual tool execution
 
 **Examples:**
-- Query: "Analyze IP 1.2.3.4" → Call analyze_ioc(indicator="1.2.3.4", indicator_type="ip")
+- Query: "Assess $10K loan, $50K revenue" → Call credit_score_model(loan_amount=10000, monthly_revenue=50000, ...)
 - Query: "Check domain evil.com" → Call analyze_ioc(indicator="evil.com", indicator_type="domain")
 - Query: "What is phishing?" → No tools needed (general question)
 
@@ -651,25 +656,25 @@ Do NOT speculate or make up information. Use ONLY the data provided by the tools
 
         # Use different prompt based on whether tools were used
         if tools_used:
-            # Formal investigation report when tools were used
-            response_prompt = f"""Generate a final cybersecurity investigation report based on the analysis.
+            # Formal credit report when tools were used
+            response_prompt = f"""Generate a final loan assessment report based on the analysis.
 
-**Investigation Summary:**
-- Severity: {severity.upper()}
-- MITRE ATT&CK Tactics: {', '.join(mitre) if mitre else 'None identified'}
-- IOCs Detected: {len(iocs)}
+**Assessment Summary:**
+- Risk Level: {severity.upper()}
+- Credit Score: {state.get('credit_score', 'Not calculated')}
+- Default Probability: {state.get('default_probability', 'Not calculated')}
 - Tools Used: {', '.join(tools_used)}
 
 **Format Requirements:**
-- Clear, professional tone suitable for a SOC analyst
-- Structured sections (Executive Summary, Findings, Recommendations)
-- Actionable recommendations
-- Reference specific evidence
+- Clear, professional tone suitable for a loan officer
+- Structured sections (Executive Summary, Financial Analysis, Credit Decision, Recommendations)
+- Actionable loan recommendation (approve/decline, amount, rate, terms)
+- Reference specific financial metrics and risk factors
 
-Start your response with "# 📋 Investigation Report\n\n" followed by the report."""
+Start your response with "# 📋 Loan Assessment Report\n\n" followed by the report."""
         else:
             # More conversational response when no tools were used
-            response_prompt = """Based on the investigation planning above, provide helpful guidance to the user.
+            response_prompt = """Based on the loan assessment planning above, provide helpful guidance to the user.
 
 **Your Response Should:**
 - Be conversational and natural (not a formal report)
@@ -697,19 +702,19 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
 
     def _is_security_query(self, state: LoanAssessmentState) -> Literal["security", "general"]:
         """
-        Determine if the query is security-related or general.
+        Determine if the query is loan assessment-related or general.
 
         Args:
-            state: Current investigation state
+            state: Current assessment state
 
         Returns:
-            "security" if it's a cybersecurity query, "general" otherwise
+            "security" if it's a loan assessment query, "general" otherwise
         """
-        investigation_steps = state.get("investigation_steps", [])
+        analysis_steps = state.get("analysis_steps", [])
 
         # Check the classification from the classify node
-        if investigation_steps and "security query" in investigation_steps[0].lower():
-            return "security"
+        if analysis_steps and ("loan" in analysis_steps[0].lower() or "credit" in analysis_steps[0].lower()):
+            return "security"  # Keep same routing logic
         return "general"
 
     def _should_use_tools(self, state: LoanAssessmentState) -> Literal["execute", "skip"]:

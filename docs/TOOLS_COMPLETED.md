@@ -1,4 +1,4 @@
-# Aegis AI - Completed Tools & Features
+# Credence AI - Completed Tools & Features
 
 ## 🎉 Major Achievements
 

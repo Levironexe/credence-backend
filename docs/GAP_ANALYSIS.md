@@ -1,14 +1,14 @@
-# Gap Analysis: Aegis AI vs Cyber LLM SOC Assistant
+# Gap Analysis: Credence AI vs Cyber LLM SOC Assistant
 
 **Date**: 2026-02-26
-**Comparison**: Project A (Aegis AI) vs Project B (Cyber LLM SOC Assistant)
-**Purpose**: Identify gaps to bring Aegis AI to production-grade quality
+**Comparison**: Project A (Credence AI) vs Project B (Cyber LLM SOC Assistant)
+**Purpose**: Identify gaps to bring Credence AI to production-grade quality
 
 ---
 
 ## Executive Summary
 
-**Current State**: Aegis AI scores **7.22/10** in weighted technical evaluation
+**Current State**: Credence AI scores **7.22/10** in weighted technical evaluation
 **Target State**: Cyber LLM SOC scores **9.00/10**
 **Gap**: **1.78 points (24.6% difference)**
 
@@ -22,7 +22,7 @@
 
 ### 1. Feature Completeness (40% weight)
 
-**Aegis AI Score**: 6.75/10
+**Credence AI Score**: 6.75/10
 **Cyber LLM SOC Score**: 9.0/10
 **Gap**: -2.25 points
 
@@ -52,7 +52,7 @@
 
 #### Demo Data vs Real Integrations
 
-| Tool | Aegis AI | Cyber LLM SOC | Gap |
+| Tool | Credence AI | Cyber LLM SOC | Gap |
 |------|----------|---------------|-----|
 | IP Reputation | Hardcoded 5 IPs | Real AlienVault OTX API | ❌ No real data |
 | CVE Lookup | Hardcoded 3 CVEs | NVD API integration | ❌ No real database |
@@ -61,7 +61,7 @@
 
 #### Evidence-Based Reasoning
 
-**Aegis AI**:
+**Credence AI**:
 - Tools are optional
 - LLM can respond without using tools
 - No enforcement of evidence for high-risk tasks
@@ -78,13 +78,13 @@
 
 ### 2. Architecture (15% weight)
 
-**Aegis AI Score**: 7.25/10
+**Credence AI Score**: 7.25/10
 **Cyber LLM SOC Score**: 8.25/10
 **Gap**: -1.0 point
 
 #### Single-Agent vs Multi-Agent
 
-**Aegis AI**:
+**Credence AI**:
 - Single LangGraph agent with 5 nodes (classify, plan, tool_selection, tool_execution, respond)
 - General-purpose reasoning
 - No specialized roles
@@ -104,7 +104,7 @@
 
 #### Performance Optimization
 
-| Feature | Aegis AI | Cyber LLM SOC | Gap |
+| Feature | Credence AI | Cyber LLM SOC | Gap |
 |---------|----------|---------------|-----|
 | Budget Guards | None | MAX_STEPS=12, MAX_TOOLS=8, MAX_RUNTIME=60s | ❌ Missing |
 | Caching | None | LRU cache with TTL (3600s, max 100 entries) | ❌ Missing |
@@ -117,13 +117,13 @@
 
 ### 3. Security (Part of Engineering Maturity: 5% weight)
 
-**Aegis AI Score**: 6.33/10
+**Credence AI Score**: 6.33/10
 **Cyber LLM SOC Score**: 8.67/10
 **Gap**: -2.34 points
 
 #### Input Security
 
-| Vulnerability | Aegis AI | Cyber LLM SOC | Status |
+| Vulnerability | Credence AI | Cyber LLM SOC | Status |
 |---------------|----------|---------------|--------|
 | Prompt Injection | ❌ No detection | ✅ 12+ markers detected pre-execution | **CRITICAL GAP** |
 | Path Traversal | ⚠️ Basic checks | ✅ Safe path resolution with allowed_root validation | **GAP** |
@@ -133,7 +133,7 @@
 
 #### Output Security
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | Content Policy | ❌ None | ✅ Secrets, credentials, weaponization blocking | **CRITICAL GAP** |
 | Response Truncation | ❌ None | ✅ 12K char limit to prevent token blowup | **GAP** |
@@ -141,7 +141,7 @@
 
 #### API Security
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | Rate Limiting | ⚠️ Configured but **not enforced** | ✅ Token bucket algorithm with backoff | **CRITICAL GAP** |
 | API Key Auth | ❌ None (OAuth only) | ✅ Optional API key header | **GAP** |
@@ -159,13 +159,13 @@
 
 ### 4. Code Quality (20% weight)
 
-**Aegis AI Score**: 6.6/10
+**Credence AI Score**: 6.6/10
 **Cyber LLM SOC Score**: 8.8/10
 **Gap**: -2.2 points
 
 #### Testing Coverage
 
-| Metric | Aegis AI | Cyber LLM SOC | Gap |
+| Metric | Credence AI | Cyber LLM SOC | Gap |
 |--------|----------|---------------|-----|
 | Backend Unit Tests | **0%** (no pytest tests) | 40-50% (1,133 lines, 16 files) | ❌ **CRITICAL** |
 | Frontend Unit Tests | 0% (only E2E) | Minimal (Vitest configured) | ❌ Missing |
@@ -176,7 +176,7 @@
 
 #### Error Handling
 
-**Aegis AI**:
+**Credence AI**:
 - Basic try/catch blocks
 - HTTPException with status codes
 - Logging with `logger.error`
@@ -191,7 +191,7 @@
 
 #### Modularity
 
-**Aegis AI**:
+**Credence AI**:
 - Tools extend `BaseTool` (good pattern)
 - Gateway client with lazy loading
 - Clean separation of routers/models/schemas
@@ -208,13 +208,13 @@
 
 ### 5. Documentation (10% weight)
 
-**Aegis AI Score**: 6.25/10
+**Credence AI Score**: 6.25/10
 **Cyber LLM SOC Score**: 8.75/10
 **Gap**: -2.5 points
 
 #### API Documentation
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | OpenAPI/Swagger | ❌ **Not enabled** | ✅ Auto-generated at `/docs` | **CRITICAL GAP** |
 | Endpoint Descriptions | ⚠️ In code only | ✅ Pydantic docstrings + OpenAPI | **GAP** |
@@ -223,7 +223,7 @@
 
 #### Setup Documentation
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | `.env.example` | ❌ **Missing** | ✅ Provided with all keys | **CRITICAL GAP** |
 | Installation Guide | ⚠️ Basic in README | ✅ Comprehensive quick start | ⚠️ Needs improvement |
@@ -232,7 +232,7 @@
 
 #### Code Documentation
 
-**Aegis AI**:
+**Credence AI**:
 - Good docstrings on classes/methods
 - Inline comments for complex logic
 - Excellent learning docs (LANGGRAPH_INTEGRATION.md - 935 lines)
@@ -250,13 +250,13 @@
 
 ### 6. Production Readiness (Part of Engineering Maturity: 5% weight)
 
-**Aegis AI Score**: 6.0/10
+**Credence AI Score**: 6.0/10
 **Cyber LLM SOC Score**: 8.0/10
 **Gap**: -2.0 points
 
 #### Observability
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | Health Checks | ⚠️ Basic `/health` | ✅ `/health` + `/ready` probes | ⚠️ Needs readiness |
 | Metrics Endpoint | ✅ `/api/debug/tool-stats` | ✅ `/api/v1/metrics/dashboard` | ⚠️ Partial |
@@ -266,7 +266,7 @@
 
 #### Monitoring Integration
 
-**Aegis AI**:
+**Credence AI**:
 - No external monitoring (Datadog, Prometheus, etc.)
 - Logs to files only
 - No alerting
@@ -281,7 +281,7 @@
 
 #### Deployment
 
-| Feature | Aegis AI | Cyber LLM SOC | Status |
+| Feature | Credence AI | Cyber LLM SOC | Status |
 |---------|----------|---------------|--------|
 | Docker | ⚠️ No Dockerfile | ✅ Dockerfile with health checks | **GAP** |
 | Environment Validation | ⚠️ Basic | ✅ Validates on startup, fails fast | ⚠️ Needs validation |
@@ -292,11 +292,11 @@
 
 ### 7. UI/UX (15% weight)
 
-**Aegis AI Score**: 7.75/10
+**Credence AI Score**: 7.75/10
 **Cyber LLM SOC Score**: 7.25/10
-**Gap**: **+0.5 point** (Aegis AI is BETTER here)
+**Gap**: **+0.5 point** (Credence AI is BETTER here)
 
-#### Where Aegis AI Excels
+#### Where Credence AI Excels
 
 **Strengths**:
 - ✅ **Next.js 16** (latest) vs Next.js 15
@@ -306,7 +306,7 @@
 - ✅ **Multi-model selection** (Claude, GPT, Gemini, Grok) vs OpenAI only
 - ✅ **Better accessibility** (ARIA attributes from Radix)
 
-**No Gap to Close** - Aegis AI is already superior in UI/UX.
+**No Gap to Close** - Credence AI is already superior in UI/UX.
 
 ---
 
@@ -340,7 +340,7 @@
 
 ## Scoring Impact Analysis
 
-**If all gaps are closed**, Aegis AI would score:
+**If all gaps are closed**, Credence AI would score:
 
 | Category | Current | Target | Weight | Impact |
 |----------|---------|--------|--------|--------|

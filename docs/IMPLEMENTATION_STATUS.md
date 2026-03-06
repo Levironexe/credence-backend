@@ -1,4 +1,4 @@
-# Aegis AI Backend - Implementation Status
+# Credence AI Backend - Implementation Status
 
 ## ✅ Completed Features
 
@@ -186,7 +186,7 @@ result = await parser.execute(
 ## 📊 Current Architecture
 
 ```
-aegis-ai-backend/
+credence-ai-backend/
 ├── app/
 │   ├── ai/                      # LLM Integration
 │   │   ├── gateway_client.py    # Multi-provider LLM router

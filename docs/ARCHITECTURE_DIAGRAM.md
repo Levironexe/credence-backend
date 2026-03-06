@@ -1,4 +1,4 @@
-# Aegis AI Backend - Architecture Diagrams
+# Credence AI Backend - Architecture Diagrams
 
 ---
 
@@ -13,7 +13,7 @@ graph TB
         Models["models.ts - Model Selection"]
     end
 
-    subgraph Backend["Aegis AI Backend (FastAPI - Port 8000)"]
+    subgraph Backend["Credence AI Backend (FastAPI - Port 8000)"]
         subgraph Routers["API Routers"]
             AuthR["/auth"]
             ChatR["/api/chat"]

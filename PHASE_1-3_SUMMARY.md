@@ -9,7 +9,7 @@
 
 ## Overview
 
-Successfully completed the first 3 phases of the CreditAI migration plan, transforming the Aegis AI cybersecurity backend into Credence (SME loan assessment system).
+Successfully completed the first 3 phases of the CreditAI migration plan, transforming the Credence AI cybersecurity backend into Credence (SME loan assessment system).
 
 ---
 

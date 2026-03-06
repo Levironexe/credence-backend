@@ -14,7 +14,7 @@ Test tools individually without the agent:
 
 ### **Create Test File**:
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 cat > test_tools_direct.py << 'EOF'
 """Direct tool testing - works immediately without integration"""
 import asyncio
@@ -172,7 +172,7 @@ Action Required: CRITICAL priority response
 
 ```bash
 # Terminal 1: Start backend
-cd aegis-ai-backend
+cd credence-ai-backend
 uvicorn app.main:app --reload
 
 # Terminal 2: Run tool test
@@ -281,7 +281,7 @@ curl http://localhost:8000/api/debug/tool-stats
 Want to integrate tools NOW? Run this:
 
 ```bash
-cd /Users/leviron/Major/COS30018/project/aegis-ai-backend
+cd /Users/leviron/Major/COS30018/project/credence-ai-backend
 
 cat > integrate_tools.py << 'EOF'
 """Quick tool integration into existing agent"""

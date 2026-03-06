@@ -1,4 +1,4 @@
-# Aegis AI Backend - Beginner's Guide
+# Credence AI Backend - Beginner's Guide
 ## Complete System Understanding from Broad to Depth
 
 > **Target Audience**: Developers new to this codebase who want to understand how the entire system works
@@ -26,9 +26,9 @@
 
 ## 1. Big Picture Overview
 
-### What is Aegis AI Backend?
+### What is Credence AI Backend?
 
-Aegis AI Backend is a **cybersecurity investigation platform** powered by Large Language Models (LLMs). Think of it as a smart assistant that helps security analysts investigate threats, analyze suspicious indicators, and provide actionable recommendations.
+Credence AI Backend is a **cybersecurity investigation platform** powered by Large Language Models (LLMs). Think of it as a smart assistant that helps security analysts investigate threats, analyze suspicious indicators, and provide actionable recommendations.
 
 **Core Purpose**:
 - Accept user queries about cybersecurity threats
@@ -47,7 +47,7 @@ Aegis AI Backend is a **cybersecurity investigation platform** powered by Large 
        │ HTTP Requests
        ↓
 ┌─────────────────────────────────────┐
-│   Aegis AI Backend (FastAPI)        │
+│   Credence AI Backend (FastAPI)        │
 │  ┌───────────────────────────────┐  │
 │  │  API Routes                   │  │
 │  │  /auth, /chat, /documents     │  │
@@ -188,7 +188,7 @@ FastAPI is a modern, high-performance Python web framework for building APIs.
 # app/main.py
 from fastapi import FastAPI
 
-app = FastAPI(title="Aegis AI Backend")
+app = FastAPI(title="Credence AI Backend")
 
 @app.get("/health")
 async def health_check():
@@ -249,7 +249,7 @@ class User(Base):
 ## 4. Directory Structure Deep Dive
 
 ```
-aegis-ai-backend/
+credence-ai-backend/
 │
 ├── app/                          # Main application package
 │   │
@@ -532,7 +532,7 @@ for msg in message_list:
     })
 
 # Add system prompt
-system_prompt = "You are Aegis AI, a cybersecurity assistant..."
+system_prompt = "You are Credence AI, a cybersecurity assistant..."
 messages.insert(0, {"role": "system", "content": system_prompt})
 ```
 
@@ -678,7 +678,7 @@ await db.commit()
 
 ```python
 # 1. Create FastAPI app
-app = FastAPI(title="Aegis AI Backend", debug=True)
+app = FastAPI(title="Credence AI Backend", debug=True)
 
 # 2. Configure CORS (Cross-Origin Resource Sharing)
 app.add_middleware(
@@ -725,7 +725,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # App settings
-    app_name: str = "Aegis AI"
+    app_name: str = "Credence AI"
     debug: bool = False
 
     # Database
@@ -762,7 +762,7 @@ model = settings.agent_model
 
 **Environment File (`.env`)**:
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost/aegis
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost/credence
 SECRET_KEY=your-secret-key-here
 ANTHROPIC_API_KEY=sk-ant-xxx
 GOOGLE_API_KEY=xxx
@@ -1216,7 +1216,7 @@ async def google_login():
 
 3. **User authorizes on Google**
 - User logs into Google
-- Grants permissions to Aegis AI
+- Grants permissions to Credence AI
 
 4. **Google redirects back with code**
 ```http
@@ -1327,7 +1327,7 @@ async def protected_route(user: User = Depends(get_current_user)):
 ```bash
 # 1. Clone repository
 git clone <repo-url>
-cd aegis-ai-backend
+cd credence-ai-backend
 
 # 2. Create virtual environment
 python -m venv venv
@@ -1343,10 +1343,10 @@ cp .env.example .env
 
 # 5. Start PostgreSQL (using Docker)
 docker run -d \
-  --name aegis-postgres \
-  -e POSTGRES_USER=aegis \
+  --name credence-postgres \
+  -e POSTGRES_USER=credence \
   -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=aegis \
+  -e POSTGRES_DB=credence \
   -p 5432:5432 \
   postgres:15
 
@@ -1577,7 +1577,7 @@ sqlalchemy.exc.OperationalError: could not connect to server
 **Solutions**:
 1. Check PostgreSQL is running: `docker ps`
 2. Verify `DATABASE_URL` in `.env`
-3. Test connection: `psql -U aegis -d aegis`
+3. Test connection: `psql -U credence -d credence`
 
 #### Issue 2: Import Errors
 
@@ -1646,10 +1646,10 @@ lsof -i :8000
 kill $(lsof -t -i:8000)
 
 # View database tables
-psql -U aegis -d aegis -c "\dt"
+psql -U credence -d credence -c "\dt"
 
 # View recent logs (if using systemd)
-journalctl -u aegis-backend -n 100
+journalctl -u credence-backend -n 100
 
 # Test database connection
 python -c "from app.database import engine; import asyncio; asyncio.run(engine.connect())"
@@ -1727,7 +1727,7 @@ python -c "from app.database import engine; import asyncio; asyncio.run(engine.c
 
 ## Conclusion
 
-You now have a comprehensive understanding of the Aegis AI Backend from broad architecture to deep implementation details. The system is designed with:
+You now have a comprehensive understanding of the Credence AI Backend from broad architecture to deep implementation details. The system is designed with:
 
 1. **Clean Architecture**: Separation of concerns across layers
 2. **Scalability**: Async operations and streaming for performance

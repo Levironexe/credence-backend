@@ -1,4 +1,4 @@
-# RAG Integration Guide for Aegis AI Backend
+# RAG Integration Guide for Credence AI Backend
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -20,7 +20,7 @@
 
 **Retrieval-Augmented Generation (RAG)** enhances LLM responses by retrieving relevant information from a knowledge base before generating answers. This reduces hallucinations and grounds responses in verified data.
 
-### Why RAG for Aegis AI?
+### Why RAG for Credence AI?
 
 Your cybersecurity agent currently relies solely on:
 - External APIs (IOC analysis tools)
@@ -169,7 +169,7 @@ class Settings(BaseSettings):
 Create Alembic migration:
 
 ```bash
-cd aegis-ai-backend
+cd credence-ai-backend
 alembic revision --autogenerate -m "add_pgvector_tables"
 ```
 
@@ -435,7 +435,7 @@ if __name__ == "__main__":
 Run ingestion:
 
 ```bash
-cd aegis-ai-backend
+cd credence-ai-backend
 python -m app.scripts.ingest_mitre_attack
 ```
 
@@ -920,7 +920,7 @@ async def update_mitre_attack():
 
 ```bash
 # crontab entry: Update MITRE ATT&CK weekly
-0 0 * * 0 cd /path/to/aegis-ai-backend && python -m app.scripts.ingest_mitre_attack
+0 0 * * 0 cd /path/to/credence-ai-backend && python -m app.scripts.ingest_mitre_attack
 ```
 
 ### Monitoring Knowledge Base

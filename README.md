@@ -1,4 +1,4 @@
-# Aegis AI Backend
+# Credence AI Backend
 
 FastAPI backend with Google OAuth authentication.
 
