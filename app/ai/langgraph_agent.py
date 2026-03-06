@@ -429,27 +429,33 @@ Provide a brief, actionable loan assessment plan."""
         logger.info(f"   Available tools: {[t.name for t in self.tools]}")
         logger.info(f"   Tool descriptions: {[(t.name, t.description[:80]) for t in self.tools]}")
 
-        # Check if query contains specific indicators that require tool usage
+        # Check if query contains specific financial data that requires tool usage
         last_message = messages[-1].content if messages else ""
+        last_message_lower = last_message.lower()
 
-        # Patterns that indicate we should force tool usage
+        # Patterns that indicate we should force tool usage for loan assessment
+        loan_keywords = [
+            "loan", "credit", "assess", "approval", "rejection", "default",
+            "financial statement", "balance sheet", "revenue", "profit", "cash flow",
+            "debt", "asset", "liability", "ratio", "score", "probability",
+            "counterfactual", "improve", "shap", "explain"
+        ]
+
+        # Check if ANY loan/financial keyword is present
+        has_loan_data = any(keyword in last_message_lower for keyword in loan_keywords)
+
+        # Also check for numeric financial data patterns (amounts, percentages, ratios)
         import re
-        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
-        domain_pattern = r'\b[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\b'
-        hash_pattern = r'\b[a-fA-F0-9]{32,64}\b'
+        has_amounts = bool(re.search(r'\$[\d,]+|\d+k|\d+m|\d+%', last_message_lower))
 
-        has_ip = bool(re.search(ip_pattern, last_message))
-        has_domain = bool(re.search(domain_pattern, last_message)) and not has_ip
-        has_hash = bool(re.search(hash_pattern, last_message))
-
-        requires_tool = has_ip or has_domain or has_hash
+        requires_tool = has_loan_data or has_amounts
 
         if requires_tool:
-            logger.info(f"   🎯 Detected indicators requiring tool usage (IP: {has_ip}, Domain: {has_domain}, Hash: {has_hash})")
+            logger.info(f"   🎯 Detected loan assessment query requiring tool usage (keywords: {has_loan_data}, amounts: {has_amounts})")
             # Force tool usage by setting tool_choice to require it
             llm_with_tools = self.llm.bind_tools(self.tools, tool_choice="any")
         else:
-            logger.info("   📝 No specific indicators detected - tools optional")
+            logger.info("   📝 No specific loan data detected - tools optional")
             # Let LLM decide
             llm_with_tools = self.llm.bind_tools(self.tools)
 
@@ -477,8 +483,9 @@ Provide a brief, actionable loan assessment plan."""
 
 **Examples:**
 - Query: "Assess $10K loan, $50K revenue" → Call credit_score_model(loan_amount=10000, monthly_revenue=50000, ...)
-- Query: "Check domain evil.com" → Call analyze_ioc(indicator="evil.com", indicator_type="domain")
-- Query: "What is phishing?" → No tools needed (general question)
+- Query: "Loan rejection - how to improve?" → Call counterfactual_generator with applicant's financial data
+- Query: "Why was credit score 650?" → Call shap_explainer to show feature importance
+- Query: "What is a good debt-to-equity ratio?" → No tools needed (general question)
 
 Make your tool selection now."""
 
