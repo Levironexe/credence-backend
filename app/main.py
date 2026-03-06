@@ -4,6 +4,15 @@ from app.config import settings
 from app.routers import auth, chat, documents, vote, api_compat, files, health
 from app.database import engine, Base
 import uvicorn
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -37,12 +46,14 @@ app.include_router(api_compat.router)  # Compatibility routes
 @app.on_event("startup")
 async def startup():
     """Initialize database tables on startup"""
+    logger.info("🚀 Starting Credence AI Backend...")
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        logger.info("✅ Database initialized successfully")
     except Exception as e:
-        print(f"WARNING: Database initialization failed: {e}")
-        print("App will start but database operations will fail until DATABASE_URL is configured")
+        logger.warning(f"⚠️ Database initialization failed: {e}")
+        logger.warning("App will start but database operations will fail until DATABASE_URL is configured")
 
 
 @app.get("/")

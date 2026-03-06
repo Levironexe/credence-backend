@@ -524,10 +524,18 @@ Make your tool selection now."""
 
         # Check if there are tool calls to execute
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            logger.info(f"Executing {len(last_message.tool_calls)} tool(s)")
+            logger.info(f"🔧 Executing {len(last_message.tool_calls)} tool(s)")
+
+            # Log each tool call with arguments
+            for tool_call in last_message.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call.get("args", {})
+                logger.info(f"   📞 Calling tool: {tool_name}")
+                logger.info(f"      Arguments: {tool_args}")
 
             # Use ToolNode to execute all tool calls
             result = await self.tool_node.ainvoke(state)
+            logger.info("✅ Tool execution completed")
 
             # Track which tools were used
             tools_used = state.get("tools_used", [])
