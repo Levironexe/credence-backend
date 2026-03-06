@@ -998,44 +998,72 @@ Do NOT use rigid templates or empty sections. Just have a natural conversation a
 
         # Stream tool execution updates
         elif event_type == "on_tool_start":
-            # Add "Tool Selection" header before first tool (only once)
+            # Add "Tool Execution" header before first tool (only once)
             if not hasattr(self, '_tool_header_shown'):
                 self._tool_header_shown = True
                 yield {
                     "choices": [{
                         "delta": {
-                            "content": "\n\n# 🛠️ Tool Selection\n\n"
+                            "content": "\n\n## 🔧 Tool Execution\n\n"
                         }
                     }]
                 }
 
             tool_input = data.get("input", {})
             tool_name = tool_input.get("name", name)
+
+            # Map tool names to friendly descriptions
+            tool_descriptions = {
+                "credit_score_model": "Calculating credit score (300-850 FICO scale)",
+                "financial_statement_analyzer": "Analyzing financial statements",
+                "data_completeness_checker": "Checking data completeness",
+                "shap_explainer": "Generating feature importance explanations",
+                "counterfactual_generator": "Computing loan improvement recommendations",
+                "lending_knowledge_retriever": "Retrieving lending regulations"
+            }
+
+            description = tool_descriptions.get(tool_name, "Executing tool")
+
             yield {
                 "choices": [{
                     "delta": {
-                        "content": f"🔧 **Using tool**: `{tool_name}`\n"
+                        "content": f"**→ {description}**"
                     }
                 }]
             }
 
         elif event_type == "on_tool_end":
+            # Get the tool result to show summary
+            output = data.get("output", {})
+
+            # Extract key metrics from tool output if available
+            summary = ""
+            if isinstance(output, dict):
+                if "credit_score" in output:
+                    summary = f" → **Score: {output['credit_score']}**"
+                elif "completeness_score" in output:
+                    completeness = int(output['completeness_score'] * 100)
+                    summary = f" → **{completeness}% complete**"
+                elif "missing_fields" in output and output["missing_fields"]:
+                    missing_count = len(output["missing_fields"])
+                    summary = f" → **{missing_count} fields missing**"
+
             yield {
                 "choices": [{
                     "delta": {
-                        "content": " ✓\n"
+                        "content": f"{summary} ✓\n\n"
                     }
                 }]
             }
 
-        # Stream node transitions (investigation progress indicators)
+        # Stream node transitions (loan assessment progress indicators)
         elif event_type == "on_chain_start":
             # Only add header for planning phase - other nodes will add headers only when they have content
             if "planning" in name.lower():
                 yield {
                     "choices": [{
                         "delta": {
-                            "content": "# 🔍 Investigation Planning\n\n"
+                            "content": "## 📋 Loan Assessment Planning\n\n"
                         }
                     }]
                 }
