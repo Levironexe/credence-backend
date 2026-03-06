@@ -254,11 +254,11 @@ class LangGraphAgent:
         """
         Node 0: Classification
 
-        Uses LLM to intelligently determine if the query requires a security investigation
+        Uses LLM to intelligently determine if the query requires loan assessment
         or is a general/educational question.
 
         Args:
-            state: Current investigation state
+            state: Current assessment state
 
         Returns:
             Updated state with classification
@@ -268,18 +268,19 @@ class LangGraphAgent:
 
         classification_prompt = """You are a query classifier. Classify the user's query as either "investigation" or "general".
 
-**investigation** = User wants to analyze specific indicators (IP, domain, hash, URL) or investigate concrete security artifacts
-**general** = User asks educational questions (what/why/how), seeks explanations, or general advice
+**investigation** = User wants to assess a loan, analyze financial data, calculate credit scores, or evaluate specific loan applications
+**general** = User asks educational questions (what/why/how), seeks explanations, or general financial advice
 
 Examples of "investigation":
-- "Analyze IP 45.142.213.100"
-- "Check domain evil.com"
-- "Investigate this hash: abc123..."
+- "Assess this loan application: $300M VND, 120M monthly revenue..."
+- "Calculate credit score for this business"
+- "Why was this loan rejected? How to improve?"
+- "Analyze financial statements for creditworthiness"
 
 Examples of "general":
-- "What is phishing?"
-- "Why should I care about alerts?"
-- "How does malware work?"
+- "What is a good debt-to-equity ratio?"
+- "How do credit scores work?"
+- "What factors affect loan approval?"
 
 Respond with EXACTLY one word: "investigation" or "general"."""
 
@@ -300,11 +301,11 @@ Respond with EXACTLY one word: "investigation" or "general"."""
 
         # Validate response
         if "investigation" in classification:
-            logger.info("🔍 LLM classified as: SECURITY INVESTIGATION")
-            return {**state, "investigation_steps": ["Classified as security query"]}
+            logger.info("🔍 LLM classified as: LOAN ASSESSMENT")
+            return {**state, "analysis_steps": ["Classified as loan assessment query"]}
         else:
             logger.info("💬 LLM classified as: GENERAL QUESTION")
-            return {**state, "investigation_steps": ["Classified as general query"]}
+            return {**state, "analysis_steps": ["Classified as general query"]}
 
     async def _simple_response_node(self, state: LoanAssessmentState) -> Dict[str, Any]:
         """
