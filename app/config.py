@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     allowed_image_types: list[str] = ["image/jpeg", "image/png"]
 
     # Model Configuration
-    # Using Claude models (Anthropic) - 2025 models
-    default_chat_model: str = "claude/claude-haiku-4-5-20251001"
+    # Using LangGraph agent with tools for loan assessment
+    default_chat_model: str = "agent/loan-analyst"
     default_title_model: str = "claude/claude-haiku-4-5-20251001"
     default_artifact_model: str = "claude/claude-haiku-4-5-20251001"
 
