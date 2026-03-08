@@ -304,39 +304,74 @@ When asked to assess a loan application:
         chunk_count = 0
         text_started = False
 
-        async for chunk in gateway_client.stream_chat_completion(
-            model=model,
-            messages=messages,
-            temperature=0.7
-        ):
-            chunk_count += 1
+        try:
+            async for chunk in gateway_client.stream_chat_completion(
+                model=model,
+                messages=messages,
+                temperature=0.7
+            ):
+                try:
+                    chunk_count += 1
+                    logger.debug(f"Received chunk #{chunk_count}: {chunk.get('type', 'unknown')}")
 
-            # Parse OpenAI-compatible chunk format
-            if "choices" in chunk and len(chunk["choices"]) > 0:
-                delta = chunk["choices"][0].get("delta", {})
-                content = delta.get("content")
+                    # Check if this is a structured event from LangGraph agent
+                    event_type = chunk.get("type")
 
-                if content:
-                    # Send text-start event on first chunk
-                    if not text_started:
-                        text_start_event = {
-                            "type": "text-start",
-                            "id": message_id
-                        }
-                        yield f"data: {json.dumps(text_start_event)}\n\n"
-                        text_started = True
+                    # PASS THROUGH all structured events from LangGraph directly
+                    if event_type in ["node_start", "tool_call", "tool_result", "reasoning", "skip", "text"]:
+                        logger.info(f"✅ Passing through structured event: {event_type} - {chunk.get('node', chunk.get('tool', ''))}")
+                        yield f"data: {json.dumps(chunk)}\n\n"
 
-                    # Handle content that might be a list or string
-                    content_str = content if isinstance(content, str) else str(content)
-                    full_content += content_str
+                        # For text events, accumulate content for database
+                        if event_type == "text":
+                            content = chunk.get("content", "")
+                            if content:
+                                full_content += content
+                                if not text_started:
+                                    text_started = True
+                        continue
 
-                    # Stream text delta in SSE format
-                    event_data = {
-                        "type": "text-delta",
-                        "id": message_id,
-                        "delta": content_str
-                    }
-                    yield f"data: {json.dumps(event_data)}\n\n"
+                    # Parse standard OpenAI-compatible chunks (for non-agent models)
+                    if "choices" in chunk and len(chunk["choices"]) > 0:
+                        delta = chunk["choices"][0].get("delta", {})
+                        content = delta.get("content")
+
+                        if content:
+                            # Send text-start event on first chunk
+                            if not text_started:
+                                text_start_event = {
+                                    "type": "text-start",
+                                    "id": message_id
+                                }
+                                yield f"data: {json.dumps(text_start_event)}\n\n"
+                                text_started = True
+
+                            # Handle content that might be a list or string
+                            content_str = content if isinstance(content, str) else str(content)
+                            full_content += content_str
+
+                            # Wrap as text-delta for standard models
+                            event_data = {
+                                "type": "text-delta",
+                                "id": message_id,
+                                "delta": content_str
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
+
+                except Exception as chunk_error:
+                    logger.error(f"❌ Error processing chunk #{chunk_count}: {type(chunk_error).__name__}: {str(chunk_error)}", exc_info=True)
+                    # Continue processing next chunks
+                    continue
+
+        except Exception as stream_error:
+            logger.error(f"❌ FATAL: Stream error after {chunk_count} chunks: {type(stream_error).__name__}: {str(stream_error)}", exc_info=True)
+            # Send error event to frontend
+            error_event = {
+                "type": "error",
+                "error": str(stream_error),
+                "traceback": f"{type(stream_error).__name__}"
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
 
         # Send text-end event
         if text_started:

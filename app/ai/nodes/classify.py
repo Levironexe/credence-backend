@@ -1,0 +1,76 @@
+import logging
+from typing import Dict, Any
+from functools import partial
+
+from langchain_core.messages import SystemMessage, HumanMessage
+
+from app.ai.state import LoanAssessmentState, QueryIntent
+
+logger = logging.getLogger(__name__)
+
+CLASSIFICATION_PROMPT = """You are an intelligent query classifier for SME loan assessment. Analyze the user's query and classify it into ONE of these intents:
+
+**1. simple_explanation**
+- Educational/general questions about lending, credit, finance
+- No specific loan data or assessment request
+- Examples: "What is a good debt-to-equity ratio?", "How do credit scores work?", "What factors affect loan approval?"
+
+**2. single_tool**
+- Query needs EXACTLY one tool to answer
+- User provides some data but wants a single specific analysis
+- Examples: "Check data completeness for: revenue=120M, loan=300M", "Calculate credit score with these metrics: ..."
+- Tool options: credit_score_model, data_completeness_checker, financial_statement_analyzer, shap_explainer, counterfactual_generator, lending_knowledge_retriever
+
+**3. full_assessment**
+- Complex loan assessment with complete/rich financial data
+- Requires multiple tools and comprehensive analysis
+- Examples: "Assess this $300M VND loan: 120M monthly revenue, 18% margin, 3 years old", "Analyze this loan application [full details]"
+
+**4. need_more_data**
+- User wants assessment but provides insufficient data
+- Missing critical fields like loan amount, revenue, tenure
+- Examples: "Why was my loan rejected?", "Can I get a loan?", "Assess my business" (no details)
+
+Classify the query and provide:
+- intent: The intent type
+- tool_needed: (only for single_tool) Which tool is needed
+- confidence: 0.0-1.0 confidence score
+- reasoning: Brief explanation (1 sentence)"""
+
+
+async def classify_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
+    """
+    Node 0: Classification
+
+    Uses LLM to intelligently determine if the query requires loan assessment
+    or is a general/educational question.
+
+    Args:
+        state: Current assessment state
+        llm:   ChatAnthropic (or any LangChain chat model) injected by the agent
+
+    Returns:
+        Updated state with intent_type, single_tool_name, and analysis_steps
+    """
+    messages = state["messages"]
+    last_message = messages[-1].content if messages else ""
+
+    structured_llm = llm.with_structured_output(QueryIntent)
+
+    result: QueryIntent = await structured_llm.ainvoke([
+        SystemMessage(content=CLASSIFICATION_PROMPT),
+        HumanMessage(content=last_message)
+    ])
+
+    logger.info(f"🎯 Query classified as: {result.intent} (confidence: {result.confidence:.2f})")
+    logger.info(f"   Reasoning: {result.reasoning}")
+
+    if result.intent == "single_tool" and result.tool_needed:
+        logger.info(f"   Tool needed: {result.tool_needed}")
+
+    return {
+        **state,
+        "intent_type": result.intent,
+        "single_tool_name": result.tool_needed or "",
+        "analysis_steps": [f"Intent: {result.intent} - {result.reasoning}"]
+    }

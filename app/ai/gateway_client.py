@@ -13,6 +13,7 @@ from app.tools.validation.data_completeness_checker import data_completeness_che
 from app.tools.knowledge.lending_knowledge_retriever import lending_knowledge_retriever
 from app.tools.explainability.shap_explainer import shap_explainer
 from app.tools.explainability.counterfactual_generator import counterfactual_generator
+from app.tools.fairness.fairness_validator import fairness_validator
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class GatewayClient:
                 lending_knowledge_retriever.to_langchain_tool(),
                 shap_explainer.to_langchain_tool(),
                 counterfactual_generator.to_langchain_tool(),
+                fairness_validator.to_langchain_tool(),
             ]
 
             self._agent.register_tools(tools)
