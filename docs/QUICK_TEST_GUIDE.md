@@ -17,7 +17,7 @@ curl http://localhost:8000/api/debug/tool-stats | jq
 The debug endpoints show zero tool usage because:
 1. ✅ Server is running
 2. ✅ Tools are loaded and registered
-3. ❌ **No chat messages have been sent yet**
+3.  **No chat messages have been sent yet**
 
 Tools are **lazy** - they only execute when you ask questions in chat!
 
@@ -38,7 +38,7 @@ Tools are **lazy** - they only execute when you ask questions in chat!
 4. **Watch the chat response** - you should see:
    - 🔍 Investigation Planning
    - 🛠️ Tool Selection
-   - 🔧 Using tool: `signature_detector`
+   -  Using tool: `signature_detector`
    - 📊 Threat Analysis
    - 📋 Investigation Report
 

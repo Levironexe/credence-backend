@@ -35,10 +35,10 @@ STREAMING EVENTS:
 ✅ Connected - Status: 200
 
 [1] 🎯 NODE_START: classify - 📋 Classifying query...
-[2] 🧠 REASONING (classify): I need to analyze this loan application...
+[2]  REASONING (classify): I need to analyze this loan application...
 [3] 🎯 NODE_START: document_ingestion - 📄 Processing documents...
 [4] 🎯 NODE_START: data_completeness - 🔍 Checking data completeness...
-[5] 🔧 TOOL_CALL: data_completeness_checker
+[5]  TOOL_CALL: data_completeness_checker
 [6] ✅ TOOL_RESULT: data_completeness_checker
 [7] 🎯 NODE_START: planning - 📋 Planning analysis...
 ...
@@ -74,7 +74,7 @@ DEBUG:app.ai.langgraph_agent:📤 Emitting NODE_START: document_ingestion
 INFO:app.ai.langgraph_agent:✅ LangGraph execution complete. Processed 156 events.
 ```
 
-❌ **Broken Stream**:
+ **Broken Stream**:
 ```
 DEBUG:app.ai.langgraph_agent:📡 LangGraph event #1: on_chain_start
 DEBUG:app.ai.langgraph_agent:📤 Emitting NODE_START: classify
@@ -82,7 +82,7 @@ INFO:app.routers.chat:✅ Passing through structured event: node_start - classif
 
 # Stream stops here - no more events
 
-ERROR:app.ai.langgraph_agent:❌ FATAL: LangGraph agent error: AttributeError: ...
+ERROR:app.ai.langgraph_agent: FATAL: LangGraph agent error: AttributeError: ...
 ```
 
 ### Step 3: Common Issues and Fixes
@@ -273,7 +273,7 @@ If you don't see this full sequence, the break point tells you which node is fai
 ## Quick Fixes Checklist
 
 - [ ] Run `test_sse_stream.py` - see raw events
-- [ ] Check backend logs for `❌ ERROR` or `❌ FATAL`
+- [ ] Check backend logs for ` ERROR` or ` FATAL`
 - [ ] Verify all nodes have correct routing
 - [ ] Ensure `USER_FACING_NODES` is correct
 - [ ] Check `route_by_intent` returns valid values

@@ -41,6 +41,124 @@ Bad outputs (never do this):
 - ""NYC Weather"" (no quotes)"""
 
 
+def convert_timeline_to_parts(timeline_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Convert timeline events to unified parts array format.
+
+    Transforms the old timeline structure (with separate text and section events)
+    into a unified parts array where all content is stored together.
+
+    Args:
+        timeline_events: List of timeline event objects
+
+    Returns:
+        List of part objects (text, tool-call, tool-result, reasoning, node-start)
+    """
+    parts = []
+    tool_calls = {}  # Track tool calls by tool name for matching with results
+
+    for event in timeline_events:
+        event_type = event.get("eventType")
+
+        if event_type == "text":
+            # Text event -> text part
+            text_content = event.get("textContent", "")
+            if text_content:
+                # Check if last part is text, if so append to it
+                if parts and parts[-1].get("type") == "text":
+                    parts[-1]["text"] += text_content
+                else:
+                    parts.append({
+                        "type": "text",
+                        "text": text_content
+                    })
+
+        elif event_type == "section":
+            section = event.get("section", {})
+            section_type = section.get("type")
+
+            if section_type == "node":
+                # Node event -> node-start part
+                parts.append({
+                    "type": "node-start",
+                    "title": section.get("title", ""),
+                    "node": section.get("id", "")
+                })
+
+            elif section_type == "reasoning":
+                # Reasoning event -> reasoning part
+                # Consolidate ALL reasoning parts with same node (search backwards through all parts)
+                reasoning_content = section.get("content", "")
+                reasoning_node = section.get("title", "").strip()
+
+                # Search backwards for existing reasoning part with same node
+                found_existing = False
+                for i in range(len(parts) - 1, -1, -1):
+                    if (parts[i].get("type") == "reasoning" and
+                        parts[i].get("node") == reasoning_node):
+                        # Found existing reasoning part - append content
+                        parts[i]["content"] += reasoning_content
+                        found_existing = True
+                        break
+
+                # Create new reasoning part only if no existing one found
+                if not found_existing:
+                    parts.append({
+                        "type": "reasoning",
+                        "content": reasoning_content,
+                        "node": reasoning_node
+                    })
+
+            elif section_type == "tool":
+                # Tool event -> tool-call part (result may come later)
+                tool_name = section.get("title", "").strip()
+
+                # Extract input from section content (it's formatted as markdown)
+                content = section.get("content", "")
+                tool_input = {}
+
+                # Parse input from markdown format: **Input:**\n```json\n{...}\n```
+                if "**Input:**" in content:
+                    try:
+                        import re
+                        json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
+                        if json_match:
+                            tool_input = json.loads(json_match.group(1))
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+
+                # Check if this is a completed tool call (has output)
+                if "**Output:**" in content:
+                    # This is a tool-result
+                    tool_output = ""
+                    try:
+                        import re
+                        # Extract output from markdown
+                        output_match = re.search(r'\*\*Output:\*\*\s*```json\s*(.*?)\s*```', content, re.DOTALL)
+                        if output_match:
+                            tool_output = output_match.group(1)
+                    except (AttributeError, ValueError):
+                        pass
+
+                    parts.append({
+                        "type": "tool-result",
+                        "name": tool_name,
+                        "input": tool_input,
+                        "output": tool_output,
+                        "isError": False
+                    })
+                else:
+                    # This is just a tool-call (no result yet)
+                    parts.append({
+                        "type": "tool-call",
+                        "name": tool_name,
+                        "input": tool_input
+                    })
+                    tool_calls[tool_name] = len(parts) - 1  # Track position
+
+    return parts
+
+
 async def generate_chat_title(user_message_text: str) -> str:
     """Generate a concise title from the user's first message"""
     try:
@@ -303,6 +421,7 @@ When asked to assess a loan application:
         full_content = ""
         chunk_count = 0
         text_started = False
+        timeline_events = []  # Collect timeline events for database
 
         try:
             async for chunk in gateway_client.stream_chat_completion(
@@ -321,6 +440,47 @@ When asked to assess a loan application:
                     if event_type in ["node_start", "tool_call", "tool_result", "reasoning", "skip", "text"]:
                         logger.info(f"✅ Passing through structured event: {event_type} - {chunk.get('node', chunk.get('tool', ''))}")
                         yield f"data: {json.dumps(chunk)}\n\n"
+
+                        # Collect timeline event for database
+                        import time
+                        timeline_event = {
+                            "id": f"{event_type}-{chunk_count}",
+                            "timestamp": int(time.time() * 1000),
+                            "eventType": "section" if event_type in ["node_start", "tool_call", "reasoning"] else "text",
+                        }
+
+                        # Add event-specific data
+                        if event_type == "text":
+                            timeline_event["textContent"] = chunk.get("content", "")
+                        elif event_type == "node_start":
+                            timeline_event["section"] = {
+                                "id": chunk.get("node", f"node-{chunk_count}"),
+                                "type": "node",
+                                "title": chunk.get("message", ""),
+                                "content": "",
+                                "isOpen": True,
+                                "isStreaming": False
+                            }
+                        elif event_type == "tool_call":
+                            timeline_event["section"] = {
+                                "id": f"tool-{chunk.get('tool', 'unknown')}-{chunk_count}",
+                                "type": "tool",
+                                "title": f" {chunk.get('tool', 'Unknown Tool')}",
+                                "content": f"**Input:**\n```json\n{json.dumps(chunk.get('input', {}), indent=2)}\n```",
+                                "isOpen": False,
+                                "isStreaming": False
+                            }
+                        elif event_type == "reasoning":
+                            timeline_event["section"] = {
+                                "id": f"reasoning-{chunk_count}",
+                                "type": "reasoning",
+                                "title": f" {chunk.get('node', 'Reasoning')}",
+                                "content": chunk.get("content", ""),
+                                "isOpen": False,
+                                "isStreaming": False
+                            }
+
+                        timeline_events.append(timeline_event)
 
                         # For text events, accumulate content for database
                         if event_type == "text":
@@ -359,12 +519,12 @@ When asked to assess a loan application:
                             yield f"data: {json.dumps(event_data)}\n\n"
 
                 except Exception as chunk_error:
-                    logger.error(f"❌ Error processing chunk #{chunk_count}: {type(chunk_error).__name__}: {str(chunk_error)}", exc_info=True)
+                    logger.error(f" Error processing chunk #{chunk_count}: {type(chunk_error).__name__}: {str(chunk_error)}", exc_info=True)
                     # Continue processing next chunks
                     continue
 
         except Exception as stream_error:
-            logger.error(f"❌ FATAL: Stream error after {chunk_count} chunks: {type(stream_error).__name__}: {str(stream_error)}", exc_info=True)
+            logger.error(f" FATAL: Stream error after {chunk_count} chunks: {type(stream_error).__name__}: {str(stream_error)}", exc_info=True)
             # Send error event to frontend
             error_event = {
                 "type": "error",
@@ -386,12 +546,22 @@ When asked to assess a loan application:
         # Extract provider from model string (e.g., "anthropic/claude-sonnet-4.5" -> "anthropic")
         provider = model.split("/")[0] if "/" in model else None
 
-        # Save assistant message to database
+        # Build unified parts array from timeline events
+        parts = convert_timeline_to_parts(timeline_events)
+
+        # If no parts were generated from timeline, fall back to simple text part
+        if not parts and full_content:
+            parts = [{"type": "text", "text": full_content}]
+
+        logger.info(f"Converted {len(timeline_events)} timeline events to {len(parts)} parts")
+
+        # Save assistant message to database with unified parts array
         assistant_message = Message(
             chatId=chat_id,
             role="assistant",
-            parts=[{"type": "text", "text": full_content}],
+            parts=parts,  # Unified parts array with all content
             attachments=[],
+            timelineEvents=timeline_events,  # Keep for backwards compatibility
             provider=provider,
             createdAt=datetime.utcnow()
         )
@@ -399,7 +569,7 @@ When asked to assess a loan application:
         await db.commit()
         await db.refresh(assistant_message)
 
-        logger.info(f"Saved assistant message with id={assistant_message.id}")
+        logger.info(f"Saved assistant message with id={assistant_message.id}, parts={len(parts)}, timeline_events={len(timeline_events)}")
 
         # Generate title if this is the first message
         result = await db.execute(select(Chat).where(Chat.id == chat_id))

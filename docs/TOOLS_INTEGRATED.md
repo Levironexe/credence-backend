@@ -8,9 +8,9 @@
 ## 🎉 What Changed
 
 ### Before Integration:
-- ❌ Tools existed but weren't connected to chat interface
-- ❌ LangGraph agent only had example IOC tool
-- ❌ Asking cybersecurity questions didn't trigger tool usage
+-  Tools existed but weren't connected to chat interface
+-  LangGraph agent only had example IOC tool
+-  Asking cybersecurity questions didn't trigger tool usage
 
 ### After Integration:
 - ✅ 10 cybersecurity tools auto-registered on agent startup
@@ -44,7 +44,7 @@
 
 ---
 
-## 📝 Files Modified
+##  Files Modified
 
 ### 1. [app/ai/langgraph_agent.py](app/ai/langgraph_agent.py)
 
@@ -166,7 +166,7 @@ grep "tool_start" logs/tools.jsonl | jq '.tool_name' | sort | uniq -c
 ### Method 3: Check LangGraph Agent Logs
 Look for these log messages:
 - `✅ Auto-registered 10 core cybersecurity tools`
-- `🔧 Tool selection node: 10 tools available`
+- ` Tool selection node: 10 tools available`
 - `✅ Tools selected: [...]`
 - `Executing X tool(s)`
 
@@ -255,7 +255,7 @@ Agent:
 I'll analyze this log entry for potential security threats...
 
 🛠️ Tool Selection
-🔧 Using tool: signaturedetector
+ Using tool: signaturedetector
 
 📊 Threat Analysis
 Detected SQL injection attempt using comment syntax (--).
@@ -279,10 +279,10 @@ Agent:
 Investigating potential brute force attack...
 
 🛠️ Tool Selection
-🔧 Using tool: signaturedetector
-🔧 Using tool: mitreattackmapper
-🔧 Using tool: severityscorer
-🔧 Using tool: playbookengine
+ Using tool: signaturedetector
+ Using tool: mitreattackmapper
+ Using tool: severityscorer
+ Using tool: playbookengine
 
 📊 Threat Analysis
 - Attack Type: Brute Force (SSH)

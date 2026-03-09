@@ -30,7 +30,7 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
             logger.warning("⚠️ No tools available - proceeding to analysis")
             return state
 
-        logger.info(f"🔧 Tool selection node: {len(tools)} tools available")
+        logger.info(f" Tool selection node: {len(tools)} tools available")
         logger.info(f"   Available tools: {[t.name for t in tools]}")
         logger.info(f"   Tool descriptions: {[(t.name, t.description[:80]) for t in tools]}")
 
@@ -59,7 +59,7 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
             # Force tool usage by setting tool_choice to require it
             llm_with_tools = llm.bind_tools(tools, tool_choice="any")
         else:
-            logger.info("   📝 No specific loan data detected - tools optional")
+            logger.info("    No specific loan data detected - tools optional")
             # Let LLM decide
             llm_with_tools = llm.bind_tools(tools)
 

@@ -126,7 +126,7 @@ sequenceDiagram
     Agent->>LLM: ainvoke(tool_prompt) with tool_choice="any"
     LLM-->>Agent: tool_call: analyze_ioc(45.142.213.100)
 
-    Agent-->>Router: SSE: "🔧 Using tool: analyze_ioc"
+    Agent-->>Router: SSE: " Using tool: analyze_ioc"
     Agent->>Tool: [execute_tools] execute(indicator, type)
     Tool-->>Agent: {reputation: 85, threat_level: malicious, ...}
     Agent-->>Router: SSE: "✓"
@@ -303,7 +303,7 @@ flowchart LR
     A{provider == 'agent'?}
     B{provider == 'claude'?}
     C{provider == 'gemini'?}
-    D["❌ ValueError\nUnsupported model"]
+    D[" ValueError\nUnsupported model"]
 
     AgentResp["LangGraph Agent\n→ Multi-step investigation\n→ Tool orchestration\n→ MITRE ATT&CK mapping"]
     ClaudeResp["Claude Client\n→ Direct LLM call\n→ Anthropic API\n→ SSE streaming"]
@@ -371,7 +371,7 @@ flowchart TD
 
     subgraph SSE_Events["SSE Event Types Yielded"]
         E1["on_chat_model_stream\n→ text chunks"]
-        E2["on_tool_start\n→ 🔧 Using tool..."]
+        E2["on_tool_start\n→  Using tool..."]
         E3["on_tool_end\n→ ✓"]
         E4["on_chain_start\n→ Section headers"]
     end

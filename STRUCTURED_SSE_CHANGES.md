@@ -325,7 +325,7 @@ Visit: `http://localhost:3000/test-sse`
 1. Click "Load Grocery Store Example"
 2. Click "Send"
 3. Observe:
-   - ✅ Collapsible sections appear (📋 Classifying, 🔧 Tools, etc.)
+   - ✅ Collapsible sections appear (📋 Classifying,  Tools, etc.)
    - ✅ Main response streams as normal text
    - ✅ Debug panel shows event counts
 

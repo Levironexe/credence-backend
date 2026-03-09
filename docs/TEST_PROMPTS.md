@@ -88,7 +88,7 @@ curl http://localhost:8000/api/debug/tool-stats | jq
 ✅ **Tool Selection Header:**
 ```
 🛠️ Tool Selection
-🔧 Using tool: signature_detector
+ Using tool: signature_detector
 ```
 
 ✅ **Multiple Sections:**
@@ -97,7 +97,7 @@ curl http://localhost:8000/api/debug/tool-stats | jq
 [Agent's plan]
 
 # 🛠️ Tool Selection
-🔧 Using tool: signature_detector ✓
+ Using tool: signature_detector ✓
 
 # 📊 Threat Analysis
 [Analysis based on tool results]
@@ -106,7 +106,7 @@ curl http://localhost:8000/api/debug/tool-stats | jq
 [Final report]
 ```
 
-❌ **If NO tools used, you'll only see:**
+ **If NO tools used, you'll only see:**
 ```
 # 🔍 Investigation Planning
 [Response without tools]
@@ -228,7 +228,7 @@ EOF
 You'll know tools are working when you see:
 
 1. ✅ Chat response has "🛠️ Tool Selection" section
-2. ✅ Chat response shows "🔧 Using tool: [toolname]"
+2. ✅ Chat response shows " Using tool: [toolname]"
 3. ✅ `tool-stats` shows `total_tool_calls > 0`
 4. ✅ `logs/tools.jsonl` file exists and has entries
 5. ✅ Agent response references specific data from tool execution

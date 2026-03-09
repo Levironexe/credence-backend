@@ -287,7 +287,7 @@ credence-ai-backend/
 │   │   ├── chat.py               # Chat message schemas
 │   │   └── document.py           # Document schemas
 │   │
-│   ├── services/                 # 🔧 Business logic services
+│   ├── services/                 #  Business logic services
 │   │   ├── google_auth_service.py  # OAuth flow implementation
 │   │   └── token_service.py        # JWT token management
 │   │
@@ -588,7 +588,7 @@ async for event in self.app.astream_events(initial_state, version="v2"):
 
     elif event["event"] == "on_tool_start":
         # Tool execution starting
-        yield {"choices": [{"delta": {"content": "🔧 Using tool..."}}]}
+        yield {"choices": [{"delta": {"content": " Using tool..."}}]}
 ```
 
 #### Step 6: Tool Execution

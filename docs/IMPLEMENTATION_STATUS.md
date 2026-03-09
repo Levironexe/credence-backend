@@ -228,7 +228,7 @@ credence-ai-backend/
 
 ---
 
-## 🔧 Required Dependencies
+##  Required Dependencies
 
 ### Already Installed:
 - langchain, langgraph
@@ -276,7 +276,7 @@ pip install jinja2            # Report generation
 
 ---
 
-## 📝 Notes
+##  Notes
 
 - **Chat Memory**: Fixed by loading previous messages from DB before LLM call
 - **Logging**: All tools should use `@log_tool_execution` decorator

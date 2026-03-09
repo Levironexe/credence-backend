@@ -26,7 +26,7 @@ async def execute_tools_node(state: LoanAssessmentState, llm, tool_node) -> Dict
 
         # Check if there are tool calls to execute
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            logger.info(f"🔧 Executing {len(last_message.tool_calls)} tool(s)")
+            logger.info(f" Executing {len(last_message.tool_calls)} tool(s)")
 
             # Log each tool call with arguments
             for tool_call in last_message.tool_calls:

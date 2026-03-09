@@ -170,7 +170,7 @@
 
 ---
 
-## 🔧 Dependencies Added
+##  Dependencies Added
 
 **Required**:
 - `python-evtx` (Windows Event Log parsing)
@@ -186,7 +186,7 @@
 
 ---
 
-## 📝 Notes
+##  Notes
 
 - Conversation memory fix is **CRITICAL** - users can now have multi-turn conversations
 - Logging system provides **complete visibility** into agent execution

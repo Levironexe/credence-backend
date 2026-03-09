@@ -67,7 +67,7 @@ Created comprehensive documentation:
 
 ---
 
-## 📝 Files Modified
+##  Files Modified
 
 | File | Changes | Lines Modified |
 |------|---------|----------------|
@@ -145,7 +145,7 @@ curl "http://localhost:8000/api/debug/execution-trace?logger_name=tools" | jq
 
 ### Expected Log Messages
 - `✅ Auto-registered 10 core cybersecurity tools` → Tools loaded
-- `🔧 Tool selection node: 10 tools available` → Agent has access to tools
+- ` Tool selection node: 10 tools available` → Agent has access to tools
 - `✅ Tools selected: [...]` → LLM chose tools to use
 - `Executing X tool(s)` → Tools are running
 

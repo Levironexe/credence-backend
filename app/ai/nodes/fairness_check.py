@@ -100,7 +100,7 @@ async def fairness_check_node(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error running fairness validator: {str(e)}")
+        logger.error(f" Error running fairness validator: {str(e)}")
         # Default routing on error
         route_decision = "approved" if credit_score >= 670 else "rejected"
         return {

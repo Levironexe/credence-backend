@@ -627,7 +627,7 @@ async def _analysis_node(self, state: CyberSecurityState) -> Dict[str, Any]:
 
     # Skip if no tools used
     if not tools_used:
-        logger.info("⏭️ Skipping analysis - no tools used")
+        logger.info(" Skipping analysis - no tools used")
         return state
 
     # Build context from RAG

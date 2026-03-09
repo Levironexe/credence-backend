@@ -388,7 +388,7 @@ async def ingest_knowledge():
         print(f"  - Credit score interpretation")
 
     except Exception as e:
-        print(f"❌ Ingestion failed: {e}")
+        print(f" Ingestion failed: {e}")
         raise
 
 

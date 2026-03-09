@@ -61,7 +61,7 @@ async def document_ingestion_node(
                 })
                 logger.info(f"   ✅ Extracted data from {doc_name}")
             except Exception as e:
-                logger.error(f"   ❌ Failed to process {doc_name}: {str(e)}")
+                logger.error(f"    Failed to process {doc_name}: {str(e)}")
                 processed_documents.append({
                     "name": doc_name,
                     "type": doc_type,
@@ -78,7 +78,7 @@ async def document_ingestion_node(
                 })
                 logger.info(f"   ✅ Extracted data from {doc_name}")
             except Exception as e:
-                logger.error(f"   ❌ Failed to process {doc_name}: {str(e)}")
+                logger.error(f"    Failed to process {doc_name}: {str(e)}")
                 processed_documents.append({
                     "name": doc_name,
                     "type": doc_type,

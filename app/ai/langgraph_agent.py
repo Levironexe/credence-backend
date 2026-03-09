@@ -480,14 +480,14 @@ Correct tool usage > reasoning > formatting.
                     async for chunk in self._transform_event_to_sse(event):
                         yield chunk
                 except Exception as transform_error:
-                    logger.error(f"❌ Error transforming event #{event_count} ({event_type}): {type(transform_error).__name__}: {str(transform_error)}", exc_info=True)
+                    logger.error(f" Error transforming event #{event_count} ({event_type}): {type(transform_error).__name__}: {str(transform_error)}", exc_info=True)
                     # Continue processing other events
                     continue
 
             logger.info(f"✅ LangGraph execution complete. Processed {event_count} events.")
 
         except Exception as e:
-            logger.error(f"❌ FATAL: LangGraph agent error: {type(e).__name__}: {str(e)}", exc_info=True)
+            logger.error(f" FATAL: LangGraph agent error: {type(e).__name__}: {str(e)}", exc_info=True)
             # Yield error as structured event
             yield {
                 "type": "error",
@@ -530,16 +530,16 @@ Correct tool usage > reasoning > formatting.
 
         # Node headers mapping
         NODE_HEADERS = {
-            "document_ingestion": "📄 Processing documents...",
-            "data_completeness": "🔍 Checking data completeness...",
-            "planning": "📋 Planning analysis...",
-            "credit_scoring": "⚙️ Computing credit score...",
-            "explainability": "🔍 Running SHAP explainability...",
-            "fairness_check": "⚖️ Running fairness validation...",
-            "counterfactual_generation": "💡 Generating improvement paths...",
-            "analysis": "📊 Synthesizing findings...",
-            "response": "📝 Generating report...",
-            "classify": "📋 Classifying query...",
+            "document_ingestion": "Processing documents",
+            "data_completeness": "Checking data completeness",
+            "planning": "Planning analysis",
+            "credit_scoring": "Computing credit score",
+            "explainability": "Running SHAP explainability",
+            "fairness_check": "Running fairness validation",
+            "counterfactual_generation": "Generating improvement paths",
+            "analysis": "Synthesizing findings",
+            "response": "Generating report",
+            "classify": "Classifying query",
         }
 
         # User-facing nodes (emit "text" instead of "reasoning")

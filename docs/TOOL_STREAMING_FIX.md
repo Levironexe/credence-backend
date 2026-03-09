@@ -60,7 +60,7 @@ elif event_type == "on_tool_start":
     # Add header before first tool
     if not hasattr(self, '_tool_header_shown'):
         self._tool_header_shown = True
-        yield {"choices": [{"delta": {"content": "\n\n## 🔧 Tool Execution\n\n"}}]}
+        yield {"choices": [{"delta": {"content": "\n\n##  Tool Execution\n\n"}}]}
 
     tool_input = data.get("input", {})
     tool_name = name

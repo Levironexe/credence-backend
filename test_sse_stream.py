@@ -44,7 +44,7 @@ async def test_sse_stream():
             print(f"✅ Connected - Status: {response.status_code}\n")
 
             if response.status_code != 200:
-                print(f"❌ Error: {response.status_code}")
+                print(f" Error: {response.status_code}")
                 print(await response.aread())
                 return
 
@@ -74,28 +74,28 @@ async def test_sse_stream():
                             if event_type == "node_start":
                                 print(f"\n[{event_count}] 🎯 NODE_START: {event.get('node')} - {event.get('message')}")
                             elif event_type == "tool_call":
-                                print(f"[{event_count}] 🔧 TOOL_CALL: {event.get('tool')}")
+                                print(f"[{event_count}]  TOOL_CALL: {event.get('tool')}")
                                 print(f"    Input: {json.dumps(event.get('input', {}), indent=2)[:200]}...")
                             elif event_type == "tool_result":
-                                print(f"[{event_count}] ✅ TOOL_RESULT: {event.get('tool')}")
+                                print(f"[{event_count}] TOOL_RESULT: {event.get('tool')}")
                                 output = event.get('output', '')
                                 print(f"    Output: {str(output)[:200]}...")
                             elif event_type == "reasoning":
                                 content = event.get('content', '')
-                                print(f"[{event_count}] 🧠 REASONING ({event.get('node')}): {content[:100]}...")
+                                print(f"[{event_count}]  REASONING ({event.get('node')}): {content[:100]}...")
                             elif event_type == "text":
                                 content = event.get('content', '')
-                                print(f"[{event_count}] 📝 TEXT: {content[:100]}...")
+                                print(f"[{event_count}]  TEXT: {content[:100]}...")
                             elif event_type == "text-delta":
                                 delta = event.get('delta', '')
-                                print(f"[{event_count}] 📝 TEXT-DELTA: {delta[:100]}...")
+                                print(f"[{event_count}]  TEXT-DELTA: {delta[:100]}...")
                             elif event_type == "skip":
-                                print(f"[{event_count}] ⏭️  SKIP: {event.get('node')} - {event.get('message')}")
+                                print(f"[{event_count}]   SKIP: {event.get('node')} - {event.get('message')}")
                             elif event_type == "error":
-                                print(f"\n[{event_count}] ❌ ERROR: {event.get('error')}")
+                                print(f"\n[{event_count}]  ERROR: {event.get('error')}")
                                 print(f"    Traceback: {event.get('traceback')}")
                             else:
-                                print(f"[{event_count}] ❓ {event_type.upper()}: {json.dumps(event, indent=2)[:200]}")
+                                print(f"[{event_count}]  {event_type.upper()}: {json.dumps(event, indent=2)[:200]}")
 
                         except json.JSONDecodeError as e:
                             print(f"⚠️  Parse error: {e}")
@@ -110,7 +110,7 @@ async def test_sse_stream():
         print(f"  {event_type}: {count}")
 
     if event_count == 0:
-        print("\n❌ NO EVENTS RECEIVED - Check backend logs!")
+        print("\n NO EVENTS RECEIVED - Check backend logs!")
     elif event_count == 1 or (event_count == 2 and event_types.get('node_start') == 2):
         print("\n⚠️  STREAM STOPPED EARLY - Only classify node_start received!")
         print("    Check backend logs for errors in LangGraph execution")

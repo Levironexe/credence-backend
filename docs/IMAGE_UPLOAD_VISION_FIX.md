@@ -174,7 +174,7 @@ lc_content.append({
 # Used string instead of dict (WRONG)
 lc_content.append({
     "type": "image_url",
-    "image_url": base64_str  # ❌ String, not dict
+    "image_url": base64_str  #  String, not dict
 })
 # Error: "string indices must be integers, not 'str'"
 # Reason: LangChain tries to access image_url["url"] but image_url is a string
@@ -213,9 +213,9 @@ import httpx
 ## Testing Results
 
 ### Before Fix
-- ❌ Regular Claude models: Could not see images
-- ❌ Agent/cyber-analyst: Could not see images
-- ❌ Error: "Only HTTPS URLs are supported"
+-  Regular Claude models: Could not see images
+-  Agent/cyber-analyst: Could not see images
+-  Error: "Only HTTPS URLs are supported"
 
 ### After Fix
 - ✅ Regular Claude models (anthropic/claude-haiku-4.5): Can process images

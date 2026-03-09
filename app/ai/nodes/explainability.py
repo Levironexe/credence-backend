@@ -84,5 +84,5 @@ async def explainability_node(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error running SHAP explainer: {str(e)}")
+        logger.error(f" Error running SHAP explainer: {str(e)}")
         return state

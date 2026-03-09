@@ -113,7 +113,7 @@ async def data_completeness_node(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error running data completeness check: {str(e)}")
+        logger.error(f" Error running data completeness check: {str(e)}")
         # Default to complete on error to not block the flow
         return {
             **state,

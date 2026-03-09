@@ -1,4 +1,4 @@
-# 🔧 Critical Fix: Agent Routing & Tool Registration
+#  Critical Fix: Agent Routing & Tool Registration
 
 **Date**: February 25, 2026
 **Status**: ✅ FIXED - Agent now properly routes and uses tools
@@ -29,7 +29,7 @@ Agent receives: "cyber-analyst" (wrong!)
         ↓
 Agent doesn't recognize model, falls back to direct Claude
         ↓
-RESULT: No LangGraph workflow, no tools used ❌
+RESULT: No LangGraph workflow, no tools used 
 ```
 
 ### **The Broken Code** ([gateway_client.py:77-93](app/ai/gateway_client.py:77-93)):
@@ -43,7 +43,7 @@ async def stream_chat_completion(self, model, messages, **kwargs):
 
     # BUG: Passes "cyber-analyst" instead of "agent/cyber-analyst"
     async for chunk in client.stream_chat_completion(
-        model=raw_model,  # ❌ WRONG for agent!
+        model=raw_model,  #  WRONG for agent!
         messages=messages,
         **kwargs
     ):
@@ -86,11 +86,11 @@ Auto-registers 10 cybersecurity tools ✅
     ↓
 Gateway.agent property is accessed
     ↓
-Calls agent.register_tools([example_ioc_tool]) ❌
+Calls agent.register_tools([example_ioc_tool]) 
     ↓
 OVERWRITES all 10 tools with just 1 example tool!
     ↓
-RESULT: No real tools available ❌
+RESULT: No real tools available 
 ```
 
 ### **The Broken Code** ([gateway_client.py:44-51](app/ai/gateway_client.py:44-51)):
@@ -102,7 +102,7 @@ def agent(self):
     if self._agent is None:
         self._agent = LangGraphAgent()  # ✅ Auto-registers 10 tools
         example_tool = ExampleIOCTool()
-        self._agent.register_tools([example_tool.to_langchain_tool()])  # ❌ OVERWRITES!
+        self._agent.register_tools([example_tool.to_langchain_tool()])  #  OVERWRITES!
     return self._agent
 ```
 
@@ -156,8 +156,8 @@ for pattern in investigation_patterns:
 | **Model Routing** | `agent/cyber-analyst` → `cyber-analyst` (broken) | `agent/cyber-analyst` → `agent/cyber-analyst` ✅ |
 | **Tool Registration** | 10 tools → overwritten to 1 | 10 tools preserved ✅ |
 | **Classification** | LLM-only (unreliable) | Pattern + LLM (robust) ✅ |
-| **Agent Usage** | ❌ Bypassed | ✅ Properly invoked |
-| **Tools in Chat** | ❌ Not available | ✅ All 10 tools active |
+| **Agent Usage** |  Bypassed | ✅ Properly invoked |
+| **Tools in Chat** |  Not available | ✅ All 10 tools active |
 
 ---
 
@@ -182,7 +182,7 @@ Planning: 🔍 Investigation Planning
     ↓
 Tool Selection: 🛠️ Tool Selection
     ↓
-Execute: 🔧 Using tool: signature_detector
+Execute:  Using tool: signature_detector
     ↓
 Analysis: 📊 Threat Analysis
     ↓

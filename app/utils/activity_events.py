@@ -97,14 +97,14 @@ class ActivityEvent(BaseModel):
         icon_map = {
             ActivityEventType.AGENT_START: "🤖",
             ActivityEventType.AGENT_THINKING: "💭",
-            ActivityEventType.TOOL_START: "🔧",
+            ActivityEventType.TOOL_START: "",
             ActivityEventType.TOOL_PROGRESS: "⏳",
             ActivityEventType.TOOL_END: "✅",
             ActivityEventType.DOCUMENT_PROCESSING: "📄",
             ActivityEventType.LLM_REASONING: "💭",
             ActivityEventType.WORKFLOW_NODE_START: "🔄",
             ActivityEventType.RESULT: "✅",
-            ActivityEventType.ERROR: "❌",
+            ActivityEventType.ERROR: "",
             ActivityEventType.RESPONSE_START: "📊",
         }
 

@@ -188,5 +188,5 @@ async def credit_scoring_node(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error running credit score model: {str(e)}")
+        logger.error(f" Error running credit score model: {str(e)}")
         return state

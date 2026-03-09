@@ -151,10 +151,10 @@ User: "I found this in my logs: 'admin' OR 1=1; DROP TABLE users--'. Investigate
 ```
 
 **Agent Workflow**:
-1. 🔧 `signature_detector` → Detects SQL injection
-2. 🔧 `mitre_attack_mapper` → Maps to T1190
-3. 🔧 `severity_scorer` → Rates as CRITICAL (10.0/10)
-4. 🔧 `playbook_engine` → Generates 5-step response plan
+1.  `signature_detector` → Detects SQL injection
+2.  `mitre_attack_mapper` → Maps to T1190
+3.  `severity_scorer` → Rates as CRITICAL (10.0/10)
+4.  `playbook_engine` → Generates 5-step response plan
 
 **Final Report**:
 ```
@@ -183,11 +183,11 @@ User: "Multiple failed SSH login attempts from 203.0.113.50. What's happening?"
 ```
 
 **Agent Workflow**:
-1. 🔧 `signature_detector` → Detects brute force pattern
-2. 🔧 `ip_reputation_checker` → Checks IP reputation
-3. 🔧 `mitre_attack_mapper` → Maps to T1110 (Credential Access)
-4. 🔧 `severity_scorer` → Rates as HIGH (6.5/10)
-5. 🔧 `playbook_engine` → Generates containment plan
+1.  `signature_detector` → Detects brute force pattern
+2.  `ip_reputation_checker` → Checks IP reputation
+3.  `mitre_attack_mapper` → Maps to T1110 (Credential Access)
+4.  `severity_scorer` → Rates as HIGH (6.5/10)
+5.  `playbook_engine` → Generates containment plan
 
 ---
 
@@ -247,13 +247,13 @@ curl "http://localhost:8000/api/debug/execution-trace?logger_name=tools&limit=20
 ### Method 4: Check LangGraph Agent Logs
 Look for these messages in server logs:
 - `✅ Auto-registered 10 core cybersecurity tools` → Tools loaded successfully
-- `🔧 Tool selection node: 10 tools available` → Agent is considering tools
+- ` Tool selection node: 10 tools available` → Agent is considering tools
 - `✅ Tools selected: [...]` → LLM chose specific tools
 - `Executing X tool(s)` → Tools are running
 
 ---
 
-## 🔧 Tool Descriptions
+##  Tool Descriptions
 
 | Tool Name | Purpose | Example Use Case |
 |-----------|---------|------------------|
@@ -270,10 +270,10 @@ Look for these messages in server logs:
 
 ---
 
-## ❓ FAQ
+##  FAQ
 
 ### Q: How do I know if tools are being used?
-A: Look for the "🛠️ Tool Selection" and "🔧 Using tool: ..." messages in the chat response.
+A: Look for the "🛠️ Tool Selection" and " Using tool: ..." messages in the chat response.
 
 ### Q: What if the agent doesn't use tools?
 A: The agent intelligently decides when tools are needed. For general questions like "What is phishing?", it won't use tools. For specific indicators like "Analyze IP 1.2.3.4", it will.

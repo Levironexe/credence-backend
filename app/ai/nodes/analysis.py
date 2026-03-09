@@ -27,7 +27,7 @@ async def analysis_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
         
         # Skip analysis if no tools were used (nothing to analyze)
         if not tools_used:
-            logger.info("⏭️ Skipping analysis node - no tools were used")
+            logger.info(" Skipping analysis node - no tools were used")
             return state
 
         analysis_prompt = f"""Provide a CONCISE credit analysis based on tool results. Start with "## Credit Analysis\n\n"

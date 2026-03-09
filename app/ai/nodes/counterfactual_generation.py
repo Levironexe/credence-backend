@@ -87,5 +87,5 @@ async def counterfactual_generation_node(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error generating counterfactuals: {str(e)}")
+        logger.error(f" Error generating counterfactuals: {str(e)}")
         return state

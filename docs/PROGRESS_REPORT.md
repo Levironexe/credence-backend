@@ -16,7 +16,7 @@
 User: "say banana"
 Assistant: "banana"
 User: "what did I tell you to say?"
-Assistant: "I don't have any record of you telling me anything" ❌
+Assistant: "I don't have any record of you telling me anything" 
 ```
 
 **After**:
@@ -329,7 +329,7 @@ Output: {
 
 ---
 
-## 📝 **Project Alignment**
+##  **Project Alignment**
 
 ### **Original Requirements**:
 - [x] G1: Single autonomous agent ✅ (exists)

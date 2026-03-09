@@ -8,10 +8,10 @@ classify → planning → tool_selection → execute_tools → analysis → resp
 ```
 
 This caused inefficiencies:
-- ❌ Simple questions like "What is a good credit score?" went through 6 nodes
-- ❌ Single-tool queries forced through planning + tool_selection
-- ❌ Fixed max_steps (5 tools) regardless of query complexity
-- ❌ No escape path for queries lacking sufficient data
+-  Simple questions like "What is a good credit score?" went through 6 nodes
+-  Single-tool queries forced through planning + tool_selection
+-  Fixed max_steps (5 tools) regardless of query complexity
+-  No escape path for queries lacking sufficient data
 
 ## Solution: Intent-Based Dynamic Routing
 

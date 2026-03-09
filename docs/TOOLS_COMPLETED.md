@@ -216,7 +216,7 @@ result = await playbook_engine.execute(
 
 ---
 
-## 🔧 **How Tools Work Together**
+##  **How Tools Work Together**
 
 ### Example Attack Detection Flow:
 
