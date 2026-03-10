@@ -1,76 +1,55 @@
 """
 Data Completeness Checker Tool
 
-Identifies missing fields in loan applications and ranks them by importance using
-SHAP-based feature importance scores.
-
-This helps guide the loan officer to request the most valuable missing data first,
-improving assessment accuracy efficiently.
+Exact implementation from run_completeness() in streamlit_demo.py.
+Uses mean_abs_shap to rank missing fields by importance.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
+import pandas as pd
 from pydantic import BaseModel, Field
 from app.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
+# Feature names from credit_risk_dataset
+FEATURE_NAMES = [
+    "person_age", "person_income", "person_home_ownership",
+    "person_emp_length", "loan_intent", "loan_grade",
+    "loan_amnt", "loan_int_rate", "loan_percent_income",
+    "cb_person_default_on_file", "cb_person_cred_hist_length"
+]
+
 
 class DataCompletenessInput(BaseModel):
     """Input schema for Data Completeness Checker."""
-    # Required fields
-    monthly_revenue: Optional[float] = Field(default=None, description="Monthly revenue")
-    loan_amount: Optional[float] = Field(default=None, description="Loan amount requested")
-    business_tenure_months: Optional[int] = Field(default=None, description="Business tenure")
-
-    # Financial statement fields (optional)
-    total_assets: Optional[float] = Field(default=None, description="Total assets")
-    total_liabilities: Optional[float] = Field(default=None, description="Total liabilities")
-    net_income: Optional[float] = Field(default=None, description="Net income")
-
-    # Alternative data fields (optional)
-    activity_rate: Optional[float] = Field(default=None, description="Business activity rate")
-    payment_history_score: Optional[float] = Field(default=None, description="Payment history")
-    num_dependents: Optional[int] = Field(default=None, description="Number of dependents")
+    person_age: Optional[float] = Field(default=None, description="Applicant age")
+    person_income: Optional[float] = Field(default=None, description="Annual income")
+    person_home_ownership: Optional[str] = Field(default=None, description="Home ownership")
+    person_emp_length: Optional[float] = Field(default=None, description="Employment length")
+    loan_intent: Optional[str] = Field(default=None, description="Loan intent")
+    loan_grade: Optional[str] = Field(default=None, description="Loan grade")
+    loan_amnt: Optional[float] = Field(default=None, description="Loan amount")
+    loan_int_rate: Optional[float] = Field(default=None, description="Interest rate")
+    loan_percent_income: Optional[float] = Field(default=None, description="Loan % of income")
+    cb_person_default_on_file: Optional[str] = Field(default=None, description="Default on file")
+    cb_person_cred_hist_length: Optional[float] = Field(default=None, description="Credit history")
 
 
 class DataCompletenessChecker(BaseTool):
     """
-    Checks data completeness and ranks missing fields by importance.
+    Data completeness checker - exact from run_completeness() in notebook.
 
-    Uses SHAP feature importance (from credit scoring model) to determine
-    which missing fields would have the highest impact on the credit score.
-
-    Production version will:
-    - Use actual SHAP values from XGBoost model
-    - Dynamically compute importance based on model training
-    - Provide personalized missing field recommendations
-
-    Example:
-        checker = DataCompletenessChecker()
-        result = await checker.execute(
-            monthly_revenue=50000,
-            loan_amount=None,  # Missing
-            business_tenure_months=18,
-            total_assets=None,  # Missing
-            activity_rate=0.95
-        )
-        # Returns: completeness_score, missing_fields ranked by impact
+    Uses mean_abs_shap computed from SHAP explainer.
+    Threshold: 0.60 (60%) to proceed.
+    Returns missing fields ranked by SHAP importance.
     """
 
-    # SHAP feature importance (from credit scoring model)
-    # Production: Load from trained model
-    FEATURE_IMPORTANCE = {
-        "loan_amount": 0.25,  # Highest impact
-        "monthly_revenue": 0.20,
-        "business_tenure_months": 0.15,
-        "total_assets": 0.12,
-        "total_liabilities": 0.10,
-        "net_income": 0.08,
-        "activity_rate": 0.05,
-        "payment_history_score": 0.03,
-        "num_dependents": 0.02
-    }
+    def __init__(self, mean_abs_shap=None, X_train=None):
+        super().__init__()
+        self.mean_abs_shap = mean_abs_shap
+        self.X_train = X_train
 
     @property
     def name(self) -> str:
@@ -90,96 +69,79 @@ class DataCompletenessChecker(BaseTool):
 
     async def execute(
         self,
-        monthly_revenue: Optional[float] = None,
-        loan_amount: Optional[float] = None,
-        business_tenure_months: Optional[int] = None,
-        total_assets: Optional[float] = None,
-        total_liabilities: Optional[float] = None,
-        net_income: Optional[float] = None,
-        activity_rate: Optional[float] = None,
-        payment_history_score: Optional[float] = None,
-        num_dependents: Optional[int] = None,
+        person_age: Optional[float] = None,
+        person_income: Optional[float] = None,
+        person_home_ownership: Optional[str] = None,
+        person_emp_length: Optional[float] = None,
+        loan_intent: Optional[str] = None,
+        loan_grade: Optional[str] = None,
+        loan_amnt: Optional[float] = None,
+        loan_int_rate: Optional[float] = None,
+        loan_percent_income: Optional[float] = None,
+        cb_person_default_on_file: Optional[str] = None,
+        cb_person_cred_hist_length: Optional[float] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Check data completeness and rank missing fields.
+        Check completeness - exact from run_completeness() in notebook.
 
         Returns:
-            Dictionary containing:
-            - completeness_score: Overall completeness (0-1)
-            - missing_fields: List of missing fields ranked by impact
-            - recommendation: What to request from user
-            - critical_missing: List of critical missing fields
+            - completeness_score: present_imp / total_imp
+            - missing_fields: Dict ranked by SHAP importance
+            - imputed_row: Row with median imputation
+            - can_proceed: score >= 0.60
         """
         try:
-            logger.info("Checking data completeness")
+            import pandas as pd
 
-            # Build field presence map
-            fields = {
-                "monthly_revenue": monthly_revenue,
-                "loan_amount": loan_amount,
-                "business_tenure_months": business_tenure_months,
-                "total_assets": total_assets,
-                "total_liabilities": total_liabilities,
-                "net_income": net_income,
-                "activity_rate": activity_rate,
-                "payment_history_score": payment_history_score,
-                "num_dependents": num_dependents
-            }
+            # Build row
+            row = pd.Series({
+                "person_age": person_age,
+                "person_income": person_income,
+                "person_home_ownership": person_home_ownership,
+                "person_emp_length": person_emp_length,
+                "loan_intent": loan_intent,
+                "loan_grade": loan_grade,
+                "loan_amnt": loan_amnt,
+                "loan_int_rate": loan_int_rate,
+                "loan_percent_income": loan_percent_income,
+                "cb_person_default_on_file": cb_person_default_on_file,
+                "cb_person_cred_hist_length": cb_person_cred_hist_length,
+            })
 
-            # Calculate completeness
-            present_fields = [field for field, value in fields.items() if value is not None]
-            missing_fields_list = [field for field, value in fields.items() if value is None]
+            # Find missing and present (exact from notebook)
+            missing = [f for f in FEATURE_NAMES if pd.isna(row.get(f, None))]
+            present = [f for f in FEATURE_NAMES if not pd.isna(row.get(f, None))]
 
-            # Weight by importance
-            total_importance = sum(self.FEATURE_IMPORTANCE.values())
-            present_importance = sum(
-                self.FEATURE_IMPORTANCE.get(field, 0) for field in present_fields
-            )
-            completeness_score = present_importance / total_importance if total_importance > 0 else 0.0
-
-            # Rank missing fields by importance
-            missing_with_importance = [
-                {
-                    "field": field,
-                    "importance": self.FEATURE_IMPORTANCE.get(field, 0),
-                    "impact": "critical" if self.FEATURE_IMPORTANCE.get(field, 0) > 0.15 else
-                            "high" if self.FEATURE_IMPORTANCE.get(field, 0) > 0.10 else
-                            "medium" if self.FEATURE_IMPORTANCE.get(field, 0) > 0.05 else "low"
-                }
-                for field in missing_fields_list
-            ]
-
-            # Sort by importance (descending)
-            missing_with_importance.sort(key=lambda x: x["importance"], reverse=True)
-
-            # Identify critical missing fields (importance > 0.15)
-            critical_missing = [
-                item for item in missing_with_importance if item["importance"] > 0.15
-            ]
-
-            # Generate recommendation
-            if completeness_score >= 0.9:
-                recommendation = "Data is complete. Proceed with credit assessment."
-            elif completeness_score >= 0.7:
-                top_missing = missing_with_importance[:2] if missing_with_importance else []
-                recommendation = f"Good data completeness. Optionally request: {', '.join([m['field'] for m in top_missing])}"
-            elif completeness_score >= 0.5:
-                top_missing = missing_with_importance[:3] if missing_with_importance else []
-                recommendation = f"Moderate completeness. Please provide: {', '.join([m['field'] for m in top_missing])}"
+            # Use mean_abs_shap if available, otherwise equal weights
+            if self.mean_abs_shap is not None:
+                total_imp = self.mean_abs_shap.sum()
+                present_imp = self.mean_abs_shap[present].sum() if present else 0.0
             else:
-                recommendation = "Low data completeness. Critical fields missing. Assessment accuracy will be low."
+                total_imp = len(FEATURE_NAMES)
+                present_imp = len(present)
+
+            score = float(present_imp / total_imp) if total_imp > 0 else 1.0
+
+            # Impute missing with median (exact from notebook)
+            imputed = row.copy()
+            if self.X_train is not None:
+                for f in missing:
+                    imputed[f] = float(self.X_train[f].median())
+
+            # Rank missing fields by SHAP importance
+            if self.mean_abs_shap is not None and missing:
+                missing_ranked = self.mean_abs_shap[missing].sort_values(ascending=False).to_dict()
+            else:
+                missing_ranked = {}
 
             return {
                 "success": True,
-                "completeness_score": round(completeness_score, 2),
-                "missing_fields": missing_with_importance,
-                "critical_missing": critical_missing,
-                "total_fields": len(fields),
-                "present_fields": len(present_fields),
-                "missing_count": len(missing_fields_list),
-                "recommendation": recommendation,
-                "message": f"Data completeness: {int(completeness_score * 100)}%"
+                "completeness_score": round(score, 3),
+                "missing_fields": missing_ranked,
+                "imputed_row": imputed.to_dict(),
+                "can_proceed": score >= 0.60,
+                "message": f"Completeness: {score:.1%}, Can proceed: {score >= 0.60}"
             }
 
         except Exception as e:
@@ -187,7 +149,7 @@ class DataCompletenessChecker(BaseTool):
             return {
                 "success": False,
                 "error": str(e),
-                "message": f"Failed to check data completeness: {str(e)}"
+                "message": f"Failed to check completeness: {str(e)}"
             }
 
 

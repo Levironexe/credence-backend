@@ -46,16 +46,13 @@ async def explainability_node(
         # Get features from state (set by data_completeness_node)
         extracted_fields = state.get("extracted_fields", {})
 
-        # Combine with credit scoring results
-        features = {
-            **extracted_fields,
-            "credit_score": credit_score,
-            "default_probability": state.get("default_probability", 0.0),
-            "risk_level": state.get("risk_level", "medium")
-        }
+        if not extracted_fields:
+            logger.warning("⚠️ No extracted features available — cannot run SHAP explainer")
+            return state
 
-        # Call SHAP explainer
-        result = await shap_tool.ainvoke(features)
+        # Call SHAP explainer with the 11 credit_risk_dataset features
+        # Tool expects: person_age, person_income, person_home_ownership, etc.
+        result = await shap_tool.ainvoke(extracted_fields)
 
         top_features = result.get("top_features", [])
         shap_values = result.get("shap_values", {})

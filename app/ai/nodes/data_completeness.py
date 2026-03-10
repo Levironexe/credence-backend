@@ -57,6 +57,7 @@ async def data_completeness_node(
 
     # Extract features from the message
     extracted_features = extract_features_from_message(last_message)
+    logger.info(f"   Extracted features from message: {extracted_features}")
 
     try:
         # Call the tool with extracted features (not raw query)
@@ -65,7 +66,8 @@ async def data_completeness_node(
         completeness_score = result.get("completeness_score", 0.0)
         missing_fields = result.get("missing_fields", [])
         present_fields = result.get("present_fields", [])
-        extracted_fields = result.get("extracted_fields", {})
+        # Keep extracted_features from message, don't overwrite with tool result
+        # extracted_fields = result.get("extracted_fields", {})
 
         # Log results - present_fields is a list of strings
         logger.info(f"   Available: {', '.join(present_fields) if present_fields else 'None'}")
@@ -109,7 +111,7 @@ async def data_completeness_node(
             "data_completeness_score": completeness_score,
             "route_to": route_decision,
             "analysis_steps": analysis_steps,
-            "extracted_fields": extracted_fields,
+            "extracted_fields": extracted_features,  # Use the features we extracted from the message
         }
 
     except Exception as e:

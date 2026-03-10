@@ -1,15 +1,15 @@
 """
 Credit Score Model Tool
 
-Calculates credit scores (300-850 scale) using machine learning models.
-Supports both rule-based (prototype) and XGBoost (production) modes.
+Calculates credit scores (300-850 scale) using XGBoost model trained on credit_risk_dataset.
+Exact implementation from streamlit_demo.py notebook.
 
 Credit Score Bands (FICO scale):
-- 800-850: Exceptional
-- 740-799: Very Good
-- 670-739: Good
-- 580-669: Fair
-- 300-579: Poor
+- 800-850: Exceptional → AUTO-APPROVE
+- 740-799: Very Good → APPROVE (standard terms)
+- 670-739: Good → APPROVE (with conditions)
+- 580-669: Fair → MANUAL REVIEW
+- 300-579: Poor → DECLINE (with counterfactual guidance)
 """
 
 import logging
@@ -17,73 +17,93 @@ import pickle
 from pathlib import Path
 from typing import Dict, Any, Optional
 import numpy as np
+import pandas as pd
 from pydantic import BaseModel, Field
 from app.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
+# Feature names from credit_risk_dataset (exact from notebook)
+FEATURE_NAMES = [
+    "person_age", "person_income", "person_home_ownership",
+    "person_emp_length", "loan_intent", "loan_grade",
+    "loan_amnt", "loan_int_rate", "loan_percent_income",
+    "cb_person_default_on_file", "cb_person_cred_hist_length"
+]
+
+CAT_COLS = [
+    "person_home_ownership", "loan_intent",
+    "loan_grade", "cb_person_default_on_file"
+]
+
 
 class CreditScoreInput(BaseModel):
-    """Input schema for Credit Score Model."""
-    # Financial metrics
-    monthly_revenue: float = Field(description="Monthly revenue (trailing 12 months average)")
-    loan_amount: float = Field(description="Requested loan amount")
-    business_tenure_months: int = Field(description="Business tenure in months")
+    """Input schema for Credit Score Model - matches credit_risk_dataset schema."""
+    # Core applicant features
+    person_age: float = Field(description="Applicant age in years")
+    person_income: float = Field(description="Annual income")
+    person_home_ownership: str = Field(description="Home ownership status (RENT/OWN/MORTGAGE/OTHER)")
+    person_emp_length: float = Field(description="Employment length in years")
 
-    # Financial ratios (from statement analyzer)
-    debt_to_equity: Optional[float] = Field(default=None, description="Debt-to-equity ratio")
-    current_ratio: Optional[float] = Field(default=None, description="Current ratio")
-    profit_margin: Optional[float] = Field(default=None, description="Net profit margin")
+    # Loan features
+    loan_intent: str = Field(description="Loan intent (PERSONAL/EDUCATION/MEDICAL/VENTURE/etc)")
+    loan_grade: str = Field(description="Loan grade (A/B/C/D/E/F/G)")
+    loan_amnt: float = Field(description="Loan amount requested")
+    loan_int_rate: float = Field(description="Loan interest rate")
+    loan_percent_income: float = Field(description="Loan amount as percent of income")
 
-    # Business context
-    industry: Optional[str] = Field(default="general", description="Industry/sector")
-
-    # Alternative data (optional)
-    activity_rate: Optional[float] = Field(default=None, description="Business activity rate (0-1)")
-    payment_history_score: Optional[float] = Field(default=None, description="Payment punctuality score (0-1)")
+    # Credit bureau features
+    cb_person_default_on_file: str = Field(description="Historical default (Y/N)")
+    cb_person_cred_hist_length: float = Field(description="Credit history length in years")
 
 
 class CreditScoreModel(BaseTool):
     """
-    Credit scoring model for SME loan assessment.
+    Credit scoring model - exact implementation from streamlit_demo.py.
 
-    Uses financial ratios, business metrics, and alternative data to calculate
-    a credit score on the 300-850 scale (FICO-compatible).
-
-    Supports two modes:
-    - Rule-based (prototype): Simple scoring algorithm
-    - XGBoost (production): Trained ML model with AUC > 0.85
+    Uses XGBoost model trained on credit_risk_dataset (32K samples, 11 features).
+    Falls back to rule-based scoring if model not available.
 
     Example:
         model = CreditScoreModel()
         result = await model.execute(
-            monthly_revenue=50000,
-            loan_amount=5000,
-            business_tenure_months=18,
-            debt_to_equity=0.8,
-            current_ratio=1.5
+            person_age=28,
+            person_income=45000,
+            person_home_ownership="RENT",
+            person_emp_length=3.0,
+            loan_intent="PERSONAL",
+            loan_grade="B",
+            loan_amnt=8000,
+            loan_int_rate=12.5,
+            loan_percent_income=0.18,
+            cb_person_default_on_file="N",
+            cb_person_cred_hist_length=3.0
         )
         # Returns: {"credit_score": 680, "score_band": "Good", "default_probability": 0.25}
     """
 
-    def __init__(self):
+    def __init__(self, model=None, X_train=None):
         super().__init__()
-        self.xgb_model = None
-        self.feature_names = None
-        self.use_ml_model = False
-        self._load_model()
+        self.xgb_model = model
+        self.X_train = X_train
+        self.feature_names = FEATURE_NAMES
+        self.use_ml_model = model is not None
+
+        if not self.use_ml_model:
+            self._load_model()
 
     def _load_model(self):
         """Load trained XGBoost model if available."""
         try:
             model_path = Path(__file__).parent.parent.parent.parent / "ml_models" / "credit_scoring" / "xgboost_model.pkl"
-            features_path = Path(__file__).parent.parent.parent.parent / "ml_models" / "credit_scoring" / "feature_names.pkl"
+            train_path = Path(__file__).parent.parent.parent.parent / "ml_models" / "credit_scoring" / "X_train.parquet"
 
-            if model_path.exists() and features_path.exists():
+            if model_path.exists():
                 with open(model_path, "rb") as f:
                     self.xgb_model = pickle.load(f)
-                with open(features_path, "rb") as f:
-                    self.feature_names = pickle.load(f)
+
+                if train_path.exists():
+                    self.X_train = pd.read_parquet(train_path)
 
                 self.use_ml_model = True
                 logger.info("✓ Loaded XGBoost credit scoring model")
@@ -94,6 +114,28 @@ class CreditScoreModel(BaseTool):
         except Exception as e:
             logger.warning(f"Failed to load XGBoost model: {e} - using rule-based scoring")
             self.use_ml_model = False
+
+    @staticmethod
+    def prob_to_score(p: float) -> int:
+        """Convert default probability to credit score (exact from notebook)."""
+        return int(850 - p * 550)
+
+    @staticmethod
+    def score_band(score: int) -> str:
+        """Get score band label (exact from notebook)."""
+        if score >= 800: return "Exceptional"
+        if score >= 740: return "Very Good"
+        if score >= 670: return "Good"
+        if score >= 580: return "Fair"
+        return "Poor"
+
+    @staticmethod
+    def decision_from_score(score: int) -> str:
+        """Get lending decision (exact from notebook)."""
+        if score >= 800: return "✅ AUTO-APPROVE"
+        if score >= 670: return "✅ APPROVE (with conditions)"
+        if score >= 580: return "🔶 MANUAL REVIEW"
+        return "❌ DECLINE"
 
     @property
     def name(self) -> str:
@@ -113,44 +155,53 @@ class CreditScoreModel(BaseTool):
 
     async def execute(
         self,
-        monthly_revenue: float,
-        loan_amount: float,
-        business_tenure_months: int,
-        debt_to_equity: Optional[float] = None,
-        current_ratio: Optional[float] = None,
-        profit_margin: Optional[float] = None,
-        industry: Optional[str] = "general",
-        activity_rate: Optional[float] = None,
-        payment_history_score: Optional[float] = None,
+        person_age: float,
+        person_income: float,
+        person_home_ownership: str,
+        person_emp_length: float,
+        loan_intent: str,
+        loan_grade: str,
+        loan_amnt: float,
+        loan_int_rate: float,
+        loan_percent_income: float,
+        cb_person_default_on_file: str,
+        cb_person_cred_hist_length: float,
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Calculate credit score.
+        Calculate credit score - exact implementation from run_scoring() in notebook.
 
         Returns:
             Dictionary containing:
             - credit_score: Score (300-850)
             - score_band: Band label (Exceptional, Very Good, Good, Fair, Poor)
             - default_probability: Estimated default probability (0-1)
-            - confidence: Model confidence (0-1)
-            - recommendation: Loan decision recommendation
+            - decision: Lending decision
+            - approved: Boolean (score >= 670)
         """
         try:
-            logger.info(f"Computing credit score for loan_amount={loan_amount}, revenue={monthly_revenue}")
+            # Build feature dict
+            features = {
+                "person_age": person_age,
+                "person_income": person_income,
+                "person_home_ownership": person_home_ownership,
+                "person_emp_length": person_emp_length,
+                "loan_intent": loan_intent,
+                "loan_grade": loan_grade,
+                "loan_amnt": loan_amnt,
+                "loan_int_rate": loan_int_rate,
+                "loan_percent_income": loan_percent_income,
+                "cb_person_default_on_file": cb_person_default_on_file,
+                "cb_person_cred_hist_length": cb_person_cred_hist_length,
+            }
+
+            logger.info(f"Computing credit score for loan_amnt={loan_amnt}, income={person_income}")
 
             # Use XGBoost model if available, otherwise fallback to rule-based
             if self.use_ml_model and self.xgb_model is not None:
-                return await self._compute_ml_score(
-                    monthly_revenue, loan_amount, business_tenure_months,
-                    debt_to_equity, current_ratio, profit_margin,
-                    activity_rate, payment_history_score
-                )
+                return await self._compute_ml_score(features)
             else:
-                return await self._compute_rule_based_score(
-                    monthly_revenue, loan_amount, business_tenure_months,
-                    debt_to_equity, current_ratio, profit_margin,
-                    activity_rate, payment_history_score
-                )
+                return await self._compute_rule_based_score(features)
 
         except Exception as e:
             logger.error(f"Credit score calculation failed: {e}")
@@ -160,225 +211,106 @@ class CreditScoreModel(BaseTool):
                 "message": f"Failed to calculate credit score: {str(e)}"
             }
 
-    async def _compute_ml_score(
-        self,
-        monthly_revenue: float,
-        loan_amount: float,
-        business_tenure_months: int,
-        debt_to_equity: Optional[float],
-        current_ratio: Optional[float],
-        profit_margin: Optional[float],
-        activity_rate: Optional[float],
-        payment_history_score: Optional[float]
-    ) -> Dict[str, Any]:
-        """Compute credit score using XGBoost model."""
+    async def _compute_ml_score(self, features: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute credit score using XGBoost model - exact from run_scoring() in notebook."""
         try:
-            # Calculate derived features
-            total_assets = monthly_revenue * 12 * 5  # Estimate
-            total_liabilities = total_assets * (debt_to_equity if debt_to_equity else 0.8)
-            net_income = monthly_revenue * 12 * (profit_margin if profit_margin else 0.1)
-            current_assets = total_assets * 0.4
-            current_liabilities = current_assets / (current_ratio if current_ratio else 1.2)
-            loan_to_revenue_ratio = loan_amount / (monthly_revenue * 12)
+            from sklearn.preprocessing import LabelEncoder
 
-            # Build feature vector
-            features = {
-                "loan_amount": loan_amount,
-                "monthly_revenue": monthly_revenue,
-                "business_tenure_months": business_tenure_months,
-                "total_assets": total_assets,
-                "total_liabilities": total_liabilities,
-                "net_income": net_income,
-                "activity_rate": activity_rate if activity_rate else 0.75,
-                "payment_history_score": payment_history_score if payment_history_score else 0.7,
-                "num_dependents": 2,  # Default
-                "owner_age": 40,  # Default
-                "num_credit_inquiries": 3,  # Default
-                "loan_to_revenue_ratio": loan_to_revenue_ratio,
-                "debt_to_equity": debt_to_equity if debt_to_equity else 1.0,
-                "current_ratio": current_ratio if current_ratio else 1.2,
-                "profit_margin": profit_margin if profit_margin else 0.1
-            }
+            # Preprocess features (same as notebook)
+            row = pd.Series(features)
 
-            # Create feature array in correct order
-            X = np.array([[features[fname] for fname in self.feature_names]])
+            # Encode categorical columns
+            le = LabelEncoder()
+            for col in CAT_COLS:
+                if col in row and isinstance(row[col], str):
+                    # Use same encoding as training (fit on common values)
+                    if col == "person_home_ownership":
+                        le.fit(["RENT", "OWN", "MORTGAGE", "OTHER"])
+                    elif col == "loan_intent":
+                        le.fit(["PERSONAL", "EDUCATION", "MEDICAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"])
+                    elif col == "loan_grade":
+                        le.fit(["A", "B", "C", "D", "E", "F", "G"])
+                    elif col == "cb_person_default_on_file":
+                        le.fit(["N", "Y"])
+                    row[col] = le.transform([row[col]])[0]
 
-            # Predict default probability
-            default_probability = float(self.xgb_model.predict_proba(X)[0, 1])
+            # Fill missing with median (if X_train available)
+            if self.X_train is not None:
+                for col in ["person_emp_length", "loan_int_rate"]:
+                    if pd.isna(row.get(col)):
+                        row[col] = float(self.X_train[col].median())
 
-            # Convert to credit score (inverse relationship)
-            # Default prob 0.0 → score 850, default prob 1.0 → score 300
-            credit_score = int(850 - (default_probability * 550))
-            credit_score = max(300, min(850, credit_score))
+            # Predict default probability (exact from notebook)
+            prob = float(self.xgb_model.predict_proba(row[FEATURE_NAMES].values.reshape(1, -1))[0, 1])
 
-            # Determine score band and recommendation
-            if credit_score >= 800:
-                score_band = "Exceptional"
-                recommendation = "Auto-approve with best terms"
-            elif credit_score >= 740:
-                score_band = "Very Good"
-                recommendation = "Approve with standard terms"
-            elif credit_score >= 670:
-                score_band = "Good"
-                recommendation = "Approve with conditions"
-            elif credit_score >= 580:
-                score_band = "Fair"
-                recommendation = "Manual review required"
-            else:
-                score_band = "Poor"
-                recommendation = "Decline with counterfactual guidance"
-
-            # Confidence based on data completeness
-            data_completeness = sum([
-                monthly_revenue > 0,
-                business_tenure_months > 0,
-                debt_to_equity is not None,
-                current_ratio is not None,
-                profit_margin is not None,
-                activity_rate is not None,
-                payment_history_score is not None
-            ]) / 7.0
-            confidence = 0.8 + (0.2 * data_completeness)  # ML model has higher base confidence
+            # Convert to credit score (exact from notebook)
+            credit_score = self.prob_to_score(prob)
 
             return {
                 "success": True,
+                "default_probability": prob,
                 "credit_score": credit_score,
-                "score_band": score_band,
-                "default_probability": round(default_probability, 3),
-                "confidence": round(confidence, 2),
-                "recommendation": recommendation,
-                "loan_to_revenue_ratio": round(loan_to_revenue_ratio, 3),
-                "data_completeness": round(data_completeness, 2),
+                "score_band": self.score_band(credit_score),
+                "decision": self.decision_from_score(credit_score),
+                "approved": credit_score >= 670,
                 "model_type": "XGBoost",
-                "message": f"Credit score: {credit_score} ({score_band}) - ML MODEL"
+                "message": f"Credit score: {credit_score} ({self.score_band(credit_score)})"
             }
 
         except Exception as e:
             logger.error(f"ML scoring failed: {e} - falling back to rule-based")
-            return await self._compute_rule_based_score(
-                monthly_revenue, loan_amount, business_tenure_months,
-                debt_to_equity, current_ratio, profit_margin,
-                activity_rate, payment_history_score
-            )
+            return await self._compute_rule_based_score(features)
 
-    async def _compute_rule_based_score(
-        self,
-        monthly_revenue: float,
-        loan_amount: float,
-        business_tenure_months: int,
-        debt_to_equity: Optional[float],
-        current_ratio: Optional[float],
-        profit_margin: Optional[float],
-        activity_rate: Optional[float],
-        payment_history_score: Optional[float]
-    ) -> Dict[str, Any]:
-        """Compute credit score using rule-based algorithm (prototype)."""
+    async def _compute_rule_based_score(self, features: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute credit score using rule-based algorithm (fallback when no model)."""
+        # Simple rule-based scoring based on loan_percent_income and other factors
+        loan_percent_income = features.get("loan_percent_income", 0.5)
+        person_age = features.get("person_age", 30)
+        person_emp_length = features.get("person_emp_length", 2)
+        cb_person_default_on_file = features.get("cb_person_default_on_file", "N")
 
-        # Initialize base score
-        base_score = 600  # Neutral starting point
+        base_score = 600
 
-        # Factor 1: Loan-to-Revenue Ratio (higher is riskier)
-        loan_to_revenue = loan_amount / (monthly_revenue * 12) if monthly_revenue > 0 else 1.0
-        if loan_to_revenue < 0.1:
-            base_score += 80  # Very low loan relative to revenue
-        elif loan_to_revenue < 0.25:
+        # Loan as percent of income
+        if loan_percent_income < 0.1:
+            base_score += 100
+        elif loan_percent_income < 0.2:
             base_score += 50
-        elif loan_to_revenue < 0.5:
+        elif loan_percent_income < 0.3:
             base_score += 20
-        elif loan_to_revenue < 1.0:
+        elif loan_percent_income > 0.5:
+            base_score -= 80
+
+        # Age factor
+        if person_age >= 40:
+            base_score += 30
+        elif person_age < 25:
             base_score -= 20
-        else:
-            base_score -= 60  # Loan exceeds annual revenue
 
-        # Factor 2: Business Tenure (longer is better)
-        if business_tenure_months >= 36:
-            base_score += 50  # 3+ years
-        elif business_tenure_months >= 24:
-            base_score += 30  # 2+ years
-        elif business_tenure_months >= 12:
-            base_score += 10  # 1+ year
-        else:
-            base_score -= 30  # Less than 1 year
+        # Employment length
+        if person_emp_length >= 10:
+            base_score += 40
+        elif person_emp_length >= 5:
+            base_score += 20
+        elif person_emp_length < 1:
+            base_score -= 30
 
-        # Factor 3: Financial Ratios
-        if debt_to_equity is not None:
-            if debt_to_equity < 0.5:
-                base_score += 30  # Low leverage
-            elif debt_to_equity < 1.0:
-                base_score += 10
-            elif debt_to_equity > 2.0:
-                base_score -= 30  # High leverage
+        # Default history
+        if cb_person_default_on_file == "Y":
+            base_score -= 100
 
-        if current_ratio is not None:
-            if current_ratio >= 2.0:
-                base_score += 30  # Strong liquidity
-            elif current_ratio >= 1.5:
-                base_score += 15
-            elif current_ratio < 1.0:
-                base_score -= 30  # Poor liquidity
-
-        if profit_margin is not None:
-            if profit_margin >= 0.2:
-                base_score += 30  # Strong profitability
-            elif profit_margin >= 0.1:
-                base_score += 15
-            elif profit_margin < 0:
-                base_score -= 40  # Unprofitable
-
-        # Factor 4: Alternative Data
-        if activity_rate is not None and activity_rate >= 0.9:
-            base_score += 20  # Consistent business activity
-
-        if payment_history_score is not None and payment_history_score >= 0.9:
-            base_score += 30  # Strong payment history
-
-        # Ensure score is within 300-850 range
         credit_score = max(300, min(850, base_score))
-
-        # Determine score band
-        if credit_score >= 800:
-            score_band = "Exceptional"
-            recommendation = "Auto-approve with best terms"
-        elif credit_score >= 740:
-            score_band = "Very Good"
-            recommendation = "Approve with standard terms"
-        elif credit_score >= 670:
-            score_band = "Good"
-            recommendation = "Approve with conditions"
-        elif credit_score >= 580:
-            score_band = "Fair"
-            recommendation = "Manual review required"
-        else:
-            score_band = "Poor"
-            recommendation = "Decline with counterfactual guidance"
-
-        # Estimate default probability (simplified formula)
-        default_probability = (850 - credit_score) / 550.0  # Maps 300→1.0, 850→0.0
-        default_probability = max(0.0, min(1.0, default_probability))
-
-        # Confidence score (based on data completeness)
-        data_completeness = sum([
-            monthly_revenue > 0,
-            business_tenure_months > 0,
-            debt_to_equity is not None,
-            current_ratio is not None,
-            profit_margin is not None,
-            activity_rate is not None,
-            payment_history_score is not None
-        ]) / 7.0
-        confidence = 0.7 + (0.3 * data_completeness)  # Base 70% + up to 30% from complete data
+        default_probability = (850 - credit_score) / 550.0
 
         return {
             "success": True,
+            "default_probability": default_probability,
             "credit_score": int(credit_score),
-            "score_band": score_band,
-            "default_probability": round(default_probability, 3),
-            "confidence": round(confidence, 2),
-            "recommendation": recommendation,
-            "loan_to_revenue_ratio": round(loan_to_revenue, 3),
-            "data_completeness": round(data_completeness, 2),
+            "score_band": self.score_band(credit_score),
+            "decision": self.decision_from_score(credit_score),
+            "approved": credit_score >= 670,
             "model_type": "rule-based",
-            "message": f"Credit score: {int(credit_score)} ({score_band}) - RULE-BASED MODE"
+            "message": f"Credit score: {int(credit_score)} ({self.score_band(credit_score)}) - RULE-BASED"
         }
 
 

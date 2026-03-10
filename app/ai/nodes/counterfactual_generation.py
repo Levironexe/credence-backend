@@ -45,24 +45,16 @@ async def counterfactual_generation_node(
     logger.info("   Finding minimal changes to reach approval threshold (670)...")
 
     try:
-        # Get features from state
+        # Get features from state (extracted in data_completeness_node)
         extracted_fields = state.get("extracted_fields", {})
 
-        # Prepare current features
-        current_features = {
-            **extracted_fields,
-            "credit_score": current_score,
-            "default_probability": state.get("default_probability", 0.0),
-            "risk_level": state.get
-            ("risk_level", "high")
-        }
+        if not extracted_fields:
+            logger.warning("⚠️ No extracted features available — cannot generate counterfactuals")
+            return state
 
-        # Call counterfactual generator
-        result = await counterfactual_tool.ainvoke({
-            "current_features": current_features,
-            "current_score": current_score,
-            "target_score": 670
-        })
+        # Call counterfactual generator with individual feature parameters
+        # The tool expects: person_age, person_income, person_home_ownership, etc.
+        result = await counterfactual_tool.ainvoke(extracted_fields)
 
         counterfactuals = result.get("counterfactuals", [])
 

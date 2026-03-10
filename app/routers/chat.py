@@ -130,15 +130,17 @@ def convert_timeline_to_parts(timeline_events: List[Dict[str, Any]]) -> List[Dic
                 # Check if this is a completed tool call (has output)
                 if "**Output:**" in content:
                     # This is a tool-result
-                    tool_output = ""
+                    tool_output = {}
                     try:
                         import re
                         # Extract output from markdown
                         output_match = re.search(r'\*\*Output:\*\*\s*```json\s*(.*?)\s*```', content, re.DOTALL)
                         if output_match:
-                            tool_output = output_match.group(1)
-                    except (AttributeError, ValueError):
-                        pass
+                            # Parse the JSON string to an object
+                            tool_output = json.loads(output_match.group(1))
+                    except (AttributeError, ValueError, json.JSONDecodeError) as e:
+                        logger.warning(f"Failed to parse tool output JSON: {e}")
+                        tool_output = {"error": "Failed to parse tool output"}
 
                     parts.append({
                         "type": "tool-result",

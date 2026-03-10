@@ -9,84 +9,125 @@ logger = logging.getLogger(__name__)
 
 def extract_features_from_message(message_content: str) -> Dict[str, Any]:
     """
-    Extract financial features from user message using simple pattern matching.
+    Extract credit_risk_dataset features from user message.
+
+    Supports two formats:
+    1. CSV format: "22,59000,RENT,123.0,PERSONAL,D,35000,16.02,1,0.59,Y,3"
+    2. Natural language (fallback to pattern matching)
 
     Args:
         message_content: The user's message text
 
     Returns:
-        Dictionary of extracted features
+        Dictionary of extracted features matching credit_risk_dataset schema
     """
     features = {}
+
+    # Feature names from credit_risk_dataset
+    FEATURE_NAMES = [
+        "person_age", "person_income", "person_home_ownership",
+        "person_emp_length", "loan_intent", "loan_grade",
+        "loan_amnt", "loan_int_rate", "loan_percent_income",
+        "cb_person_default_on_file", "cb_person_cred_hist_length"
+    ]
+
+    # Try CSV format first (exact match from dataset)
+    # Format: person_age,person_income,person_home_ownership,person_emp_length,loan_intent,loan_grade,loan_amnt,loan_int_rate,loan_status,loan_percent_income,cb_person_default_on_file,cb_person_cred_hist_length
+    # Example: 22,59000,RENT,123.0,PERSONAL,D,35000,16.02,1,0.59,Y,3
+
+    # More flexible CSV pattern (allows optional spaces)
+    csv_pattern = r'(\d+),\s*(\d+),\s*([\w]+),\s*([\d.]+),\s*([\w]+),\s*([A-G]),\s*([\d]+),\s*([\d.]+)(?:,\s*\d+)?,\s*([\d.]+),\s*([YN]),\s*([\d]+)'
+    csv_match = re.search(csv_pattern, message_content)
+
+    if csv_match:
+        # Parse CSV format
+        try:
+            features = {
+                "person_age": float(csv_match.group(1)),
+                "person_income": float(csv_match.group(2)),
+                "person_home_ownership": csv_match.group(3),
+                "person_emp_length": float(csv_match.group(4)),
+                "loan_intent": csv_match.group(5),
+                "loan_grade": csv_match.group(6),
+                "loan_amnt": float(csv_match.group(7)),
+                "loan_int_rate": float(csv_match.group(8)),
+                "loan_percent_income": float(csv_match.group(9)),
+                "cb_person_default_on_file": csv_match.group(10),
+                "cb_person_cred_hist_length": float(csv_match.group(11)),
+            }
+            logger.info(f"✓ Parsed CSV format successfully: {features}")
+            return features
+        except (ValueError, IndexError) as e:
+            logger.warning(f"✗ Failed to parse CSV format: {e}")
+
+    # Fallback: Try to extract from natural language
     content_lower = message_content.lower()
+
+    # Extract age
+    age_patterns = [r'age[:\s]+(\d+)', r'(\d+)\s*years?\s*old']
+    for pattern in age_patterns:
+        match = re.search(pattern, content_lower)
+        if match:
+            features['person_age'] = float(match.group(1))
+            break
+
+    # Extract income
+    income_patterns = [
+        r'income[:\s]+\$?(\d+(?:,\d{3})*)',
+        r'earn[s]?\s+\$?(\d+(?:,\d{3})*)',
+        r'salary[:\s]+\$?(\d+(?:,\d{3})*)'
+    ]
+    for pattern in income_patterns:
+        match = re.search(pattern, content_lower)
+        if match:
+            features['person_income'] = float(match.group(1).replace(',', ''))
+            break
 
     # Extract loan amount
     loan_patterns = [
-        r'loan.*?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:million|m|vnd|k|thousand)',
-        r'\$?\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:million|m)\s*(?:loan|vnd)?',
-        r'(\d+(?:,\d{3})*)\s*(?:vnd|k)\s*loan'
+        r'loan[:\s]+\$?(\d+(?:,\d{3})*)',
+        r'\$(\d+(?:,\d{3})*)\s*loan'
     ]
     for pattern in loan_patterns:
         match = re.search(pattern, content_lower)
         if match:
-            amount_str = match.group(1).replace(',', '')
-            # Convert to actual number
-            if 'million' in message_content.lower() or 'm' in match.group(0):
-                features['loan_amount'] = float(amount_str) * 1_000_000
-            elif 'k' in match.group(0) or 'thousand' in message_content.lower():
-                features['loan_amount'] = float(amount_str) * 1_000
-            else:
-                features['loan_amount'] = float(amount_str)
+            features['loan_amnt'] = float(match.group(1).replace(',', ''))
             break
 
-    # Extract revenue
-    revenue_patterns = [
-        r'revenue.*?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:million|m|vnd|k)',
-        r'(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:million|m).*?revenue'
+    # Extract home ownership
+    if 'rent' in content_lower:
+        features['person_home_ownership'] = 'RENT'
+    elif 'own' in content_lower or 'owner' in content_lower:
+        features['person_home_ownership'] = 'OWN'
+    elif 'mortgage' in content_lower:
+        features['person_home_ownership'] = 'MORTGAGE'
+
+    # Extract loan intent
+    if 'personal' in content_lower:
+        features['loan_intent'] = 'PERSONAL'
+    elif 'education' in content_lower:
+        features['loan_intent'] = 'EDUCATION'
+    elif 'medical' in content_lower:
+        features['loan_intent'] = 'MEDICAL'
+    elif 'venture' in content_lower or 'business' in content_lower:
+        features['loan_intent'] = 'VENTURE'
+
+    # Extract employment length
+    emp_patterns = [
+        r'employed[:\s]+(\d+(?:\.\d+)?)\s*years?',
+        r'(\d+(?:\.\d+)?)\s*years?\s*employment'
     ]
-    for pattern in revenue_patterns:
+    for pattern in emp_patterns:
         match = re.search(pattern, content_lower)
         if match:
-            amount_str = match.group(1).replace(',', '')
-            if 'million' in match.group(0) or 'm' in match.group(0):
-                features['monthly_revenue'] = float(amount_str) * 1_000_000
-            elif 'k' in match.group(0):
-                features['monthly_revenue'] = float(amount_str) * 1_000
-            else:
-                features['monthly_revenue'] = float(amount_str)
+            features['person_emp_length'] = float(match.group(1))
             break
 
-    # Extract business tenure
-    tenure_patterns = [
-        r'(\d+)\s*(?:years?|yrs?)\s*old',
-        r'(?:tenure|operating for).*?(\d+)\s*(?:years?|months?)'
-    ]
-    for pattern in tenure_patterns:
-        match = re.search(pattern, content_lower)
-        if match:
-            if 'month' in match.group(0):
-                features['business_tenure_months'] = int(match.group(1))
-            else:
-                features['business_tenure_months'] = int(match.group(1)) * 12
-            break
-
-    # Extract profit margin
-    margin_patterns = [
-        r'(\d+(?:\.\d+)?)\s*%\s*(?:margin|profit)',
-        r'margin.*?(\d+(?:\.\d+)?)\s*%'
-    ]
-    for pattern in margin_patterns:
-        match = re.search(pattern, content_lower)
-        if match:
-            features['profit_margin'] = float(match.group(1)) / 100
-            break
-
-    # Extract industry (simple keyword matching)
-    industries = ['retail', 'manufacturing', 'technology', 'services', 'agriculture', 'hospitality', 'construction']
-    for industry in industries:
-        if industry in content_lower:
-            features['industry'] = industry
-            break
+    # Extract default history
+    if 'default' in content_lower and 'yes' in content_lower:
+        features['cb_person_default_on_file'] = 'Y'
+    elif 'default' in content_lower and 'no' in content_lower:
+        features['cb_person_default_on_file'] = 'N'
 
     return features
 
