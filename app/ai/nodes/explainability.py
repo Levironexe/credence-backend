@@ -50,34 +50,45 @@ async def explainability_node(
             logger.warning("⚠️ No extracted features available — cannot run SHAP explainer")
             return state
 
-        # Call SHAP explainer with the 11 credit_risk_dataset features
-        # Tool expects: person_age, person_income, person_home_ownership, etc.
-        result = await shap_tool.ainvoke(extracted_fields)
+        # Call SHAP explainer (wrap in applicant_data per tool schema)
+        result = await shap_tool.ainvoke({"applicant_data": extracted_fields})
 
-        top_features = result.get("top_features", [])
-        shap_values = result.get("shap_values", {})
+        explanations = result.get("explanations", [])
 
         # Log top 3 features
         logger.info("   ✅ Top factors identified:")
-        for i, feature in enumerate(top_features[:3], 1):
-            feature_name = feature.get("name", "unknown")
-            importance = feature.get("importance", 0.0)
-            logger.info(f"      {i}. {feature_name}: {importance:+.3f}")
+        for i, feat in enumerate(explanations[:3], 1):
+            label = feat.get("label", feat.get("feature", "unknown"))
+            shap_val = feat.get("shap_value", 0.0)
+            direction = feat.get("direction", "")
+            logger.info(f"      {i}. {label}: {shap_val:+.4f} ({direction})")
 
         # Update analysis steps
         analysis_steps = state.get("analysis_steps", [])
-        top_3_names = [f["name"] for f in top_features[:3]]
+        top_3_names = [f.get("label", f.get("feature", "?")) for f in explanations[:3]]
         analysis_steps.append(
             f"SHAP analysis: top factors — {', '.join(top_3_names)}"
         )
 
+        # Inject SHAP results as a message so downstream LLM nodes can see them
+        from langchain_core.messages import AIMessage
+        shap_lines = ["**[SHAP Feature Importance — Top Factors Driving Credit Score]**"]
+        for i, feat in enumerate(explanations[:7], 1):
+            label = feat.get("label", feat.get("feature", "unknown"))
+            shap_val = feat.get("shap_value", 0.0)
+            direction = feat.get("direction", "")
+            value = feat.get("value", "")
+            shap_lines.append(f"{i}. **{label}**: SHAP={shap_val:+.4f} ({direction}) [value={value}]")
+        shap_message = AIMessage(content="\n".join(shap_lines))
+
         return {
             **state,
             "shap_explanations": {
-                "top_features": top_features,
-                "shap_values": shap_values
+                "explanations": explanations,
+                "base_value": result.get("base_value"),
             },
             "analysis_steps": analysis_steps,
+            "messages": list(state.get("messages", [])) + [shap_message],
         }
 
     except Exception as e:

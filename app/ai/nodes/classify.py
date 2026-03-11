@@ -24,11 +24,13 @@ CLASSIFICATION_PROMPT = """You are an intelligent query classifier for SME loan 
 **3. full_assessment**
 - Complex loan assessment with complete/rich financial data
 - Requires multiple tools and comprehensive analysis
-- Examples: "Assess this $300M VND loan: 120M monthly revenue, 18% margin, 3 years old", "Analyze this loan application [full details]"
+- ALSO applies when the user references an applicant by ID (e.g. "applicant #270000") — the system will look up the full data automatically, so treat this as a complete data request, NOT as "need_more_data"
+- Examples: "Assess this $300M VND loan: 120M monthly revenue, 18% margin, 3 years old", "Analyze this loan application [full details]", "Assess applicant #270000", "Score applicant #285000", "Look up applicant 300000"
 
 **4. need_more_data**
 - User wants assessment but provides insufficient data
 - Missing critical fields like loan amount, revenue, tenure
+- IMPORTANT: Do NOT classify as need_more_data if the user provides an applicant ID number — that ID is used to look up all required data automatically
 - Examples: "Why was my loan rejected?", "Can I get a loan?", "Assess my business" (no details)
 
 Classify the query and provide:
@@ -54,6 +56,10 @@ async def classify_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
     """
     messages = state["messages"]
     last_message = messages[-1].content if messages else ""
+
+    # Handle multimodal content (list of parts)
+    if isinstance(last_message, list):
+        last_message = " ".join([part.get("text", "") for part in last_message if isinstance(part, dict) and part.get("type") == "text"])
 
     structured_llm = llm.with_structured_output(QueryIntent)
 

@@ -52,6 +52,58 @@ async def data_completeness_node(
     else:
         last_message = ""
 
+    # Check for applicant ID lookup pattern (e.g. "Assess applicant #270000")
+    import re
+    applicant_match = re.search(r'applicant\s*#?\s*(\d+)', last_message, re.IGNORECASE)
+
+    if applicant_match:
+        applicant_id = int(applicant_match.group(1))
+        logger.info(f"   Detected applicant lookup: #{applicant_id}")
+        from app.tools.model_loader import artifacts
+        if artifacts.X_test is not None and applicant_id in artifacts.X_test.index:
+            row = artifacts.X_test.loc[applicant_id]
+            extracted_features = row.to_dict()
+            logger.info(f"   Loaded {len(extracted_features)} features from X_test for applicant #{applicant_id}")
+
+            # Store actual default for comparison
+            actual_default_info = ""
+            if artifacts.y_test is not None:
+                actual_default = int(artifacts.y_test.loc[applicant_id])
+                actual_default_info = f", actual_default={actual_default}"
+                logger.info(f"   Actual default label: {actual_default}")
+
+            # Short-circuit: all 128 features present, completeness = 100%
+            analysis_steps = state.get("analysis_steps", [])
+            analysis_steps.append(
+                f"Data completeness check: 1.00 "
+                f"({len(extracted_features)} present, 0 missing) — applicant #{applicant_id} loaded from dataset{actual_default_info}"
+            )
+
+            return {
+                **state,
+                "data_completeness_score": 1.0,
+                "route_to": "complete",
+                "analysis_steps": analysis_steps,
+                "extracted_fields": extracted_features,
+            }
+        else:
+            # Invalid applicant ID — route to need_more_data with helpful error
+            valid_min = int(artifacts.X_test.index.min()) if artifacts.X_test is not None else "?"
+            valid_max = int(artifacts.X_test.index.max()) if artifacts.X_test is not None else "?"
+            error_msg = f"Applicant #{applicant_id} not found. Valid ID range: {valid_min}-{valid_max}."
+            logger.warning(f"   {error_msg}")
+
+            analysis_steps = state.get("analysis_steps", [])
+            analysis_steps.append(f"Applicant lookup failed: {error_msg}")
+
+            return {
+                **state,
+                "data_completeness_score": 0.0,
+                "route_to": "incomplete",
+                "analysis_steps": analysis_steps,
+                "extracted_fields": {},
+            }
+
     # Import the feature extraction from credit_scoring_node
     from app.ai.nodes.credit_scoring import extract_features_from_message
 
@@ -60,50 +112,37 @@ async def data_completeness_node(
     logger.info(f"   Extracted features from message: {extracted_features}")
 
     try:
-        # Call the tool with extracted features (not raw query)
-        result = await completeness_tool.ainvoke(extracted_features)
+        # Call the tool with extracted features (wrap in applicant_data per tool schema)
+        result = await completeness_tool.ainvoke({"applicant_data": extracted_features})
 
         completeness_score = result.get("completeness_score", 0.0)
-        missing_fields = result.get("missing_fields", [])
-        present_fields = result.get("present_fields", [])
-        # Keep extracted_features from message, don't overwrite with tool result
-        # extracted_fields = result.get("extracted_fields", {})
+        missing_fields = result.get("missing_fields", {})  # dict: {name: {importance, label}}
+        fields_present = result.get("fields_present", 0)
+        fields_missing = result.get("fields_missing", 0)
+        can_proceed = result.get("can_proceed", True)
 
-        # Log results - present_fields is a list of strings
-        logger.info(f"   Available: {', '.join(present_fields) if present_fields else 'None'}")
+        logger.info(f"   Fields present: {fields_present}, missing: {fields_missing}")
 
-        # Group missing fields by SHAP importance
-        # Fix: use 'field' and 'importance' keys instead of 'name' and 'shap_importance'
-        high_impact = [f for f in missing_fields if f.get("importance", 0) >= 0.20]
-        medium_impact = [f for f in missing_fields if 0.10 <= f.get("importance", 0) < 0.20]
-        low_impact = [f for f in missing_fields if f.get("importance", 0) < 0.10]
+        # Group missing fields by SHAP importance (missing_fields is a dict)
+        for field_name, info in missing_fields.items():
+            imp = info.get("importance", 0)
+            label = info.get("label", field_name)
+            level = "high" if imp >= 0.20 else ("medium" if imp >= 0.10 else "low")
+            logger.info(f"   Missing ({level} impact): {label}  [SHAP: {imp:.4f}]")
 
-        if high_impact:
-            for field in high_impact:
-                logger.info(f"   Missing (high impact):   {field.get('field', 'unknown')}   [SHAP: {field.get('importance', 0):.2f}]")
-
-        if medium_impact:
-            for field in medium_impact:
-                logger.info(f"   Missing (medium impact): {field.get('field', 'unknown')}  [SHAP: {field.get('importance', 0):.2f}]")
-
-        if low_impact:
-            for field in low_impact:
-                logger.info(f"   Missing (low impact):    {field.get('field', 'unknown')}   [SHAP: {field.get('importance', 0):.2f}]")
-
-        # Determine routing
-        threshold = 0.4
-        if completeness_score < threshold:
-            logger.info(f"   Completeness score: {completeness_score:.2f} — below minimum threshold ({threshold}), requesting missing data")
-            route_decision = "incomplete"
-        else:
-            logger.info(f"   Completeness score: {completeness_score:.2f} — above minimum threshold, proceeding")
+        # Determine routing — use can_proceed from tool, or fallback threshold
+        if can_proceed:
+            logger.info(f"   Completeness score: {completeness_score:.2f} — sufficient, proceeding")
             route_decision = "complete"
+        else:
+            logger.info(f"   Completeness score: {completeness_score:.2f} — insufficient, requesting missing data")
+            route_decision = "incomplete"
 
         # Update analysis steps
         analysis_steps = state.get("analysis_steps", [])
         analysis_steps.append(
             f"Data completeness check: {completeness_score:.2f} "
-            f"({len(present_fields)} present, {len(missing_fields)} missing)"
+            f"({fields_present} present, {fields_missing} missing)"
         )
 
         return {
@@ -111,7 +150,7 @@ async def data_completeness_node(
             "data_completeness_score": completeness_score,
             "route_to": route_decision,
             "analysis_steps": analysis_steps,
-            "extracted_fields": extracted_features,  # Use the features we extracted from the message
+            "extracted_fields": extracted_features,
         }
 
     except Exception as e:

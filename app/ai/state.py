@@ -76,7 +76,7 @@ class LoanAssessmentState(TypedDict):
     cash_flow_analysis: dict  # Operating, investing, financing cash flow ratios
 
     # Credit assessment results
-    credit_score: float  # 300-850 FICO-equivalent credit score
+    credit_score: float  # 300-850 Credence Credit Score
     default_probability: float  # 0.0-1.0 probability of loan default
     risk_level: str  # Risk classification: "low" | "medium" | "high" | "critical"
     risk_factors: list[str]  # Identified risk factors (e.g., "high leverage", "declining revenue")

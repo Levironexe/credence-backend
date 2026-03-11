@@ -24,9 +24,17 @@ async def need_more_data_node(state: LoanAssessmentState, llm) -> Dict[str, Any]
         """
         messages = state["messages"]
 
-        prompt = """The user wants a loan assessment but hasn't provided enough data.
+        # Include analysis steps context (e.g. failed applicant lookup) so LLM can give a relevant response
+        analysis_steps = state.get("analysis_steps", [])
+        context = ""
+        if analysis_steps:
+            context = f"\n\nContext from prior analysis steps:\n" + "\n".join(f"- {s}" for s in analysis_steps)
 
-Politely request the missing critical information needed for assessment:
+        prompt = f"""The user wants a loan assessment but hasn't provided enough data.{context}
+
+If an applicant lookup failed (invalid ID), tell the user the valid ID range and suggest they try again.
+
+Otherwise, politely request the missing critical information needed for assessment:
 - Loan amount requested
 - Monthly/annual revenue
 - Business age/tenure

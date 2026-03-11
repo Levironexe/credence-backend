@@ -1,64 +1,74 @@
 """
 Counterfactual Explanation Generator
 
-Exact implementation from run_counterfactuals() in streamlit_demo.py.
-Simple perturbation approach - tests one feature at a time.
-Returns top 5 changes that reach 670+ score.
+Uses DiCE (Diverse Counterfactual Explanations) with genetic optimization
+to generate actionable "what-if" scenarios for denied applicants.
+
+Only varies actionable features (loan amount, income, employment, debt)
+with realistic permitted ranges.
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 from app.tools.base import BaseTool
+from app.tools.model_loader import artifacts
 
 logger = logging.getLogger(__name__)
 
-# Feature names from credit_risk_dataset
-FEATURE_NAMES = [
-    "person_age", "person_income", "person_home_ownership",
-    "person_emp_length", "loan_intent", "loan_grade",
-    "loan_amnt", "loan_int_rate", "loan_percent_income",
-    "cb_person_default_on_file", "cb_person_cred_hist_length"
-]
+# Permitted ranges for actionable features
+PERMITTED_RANGES = {
+    "AMT_INCOME_TOTAL": [50000, 1000000],
+    "AMT_CREDIT": [45000, 2000000],
+    "AMT_ANNUITY": [5000, 80000],
+    "AMT_GOODS_PRICE": [40000, 2000000],
+    "DAYS_EMPLOYED": [-7300, -30],
+    "bureau_debt_sum": [0, 5000000],
+    "bureau_active_count": [0, 10],
+    "credit_income_ratio": [0.1, 10],
+    "annuity_income_ratio": [0.01, 0.5],
+    "bureau_debt_credit_ratio": [0, 1],
+}
+
+# Human-readable labels
+DEFAULT_LABELS = {
+    "AMT_CREDIT": "Loan amount",
+    "AMT_ANNUITY": "Monthly payment",
+    "AMT_GOODS_PRICE": "Purchase price",
+    "AMT_INCOME_TOTAL": "Annual income",
+    "DAYS_EMPLOYED": "Employment duration",
+    "bureau_debt_sum": "Total outstanding debt",
+    "bureau_active_count": "Active credit lines",
+    "credit_income_ratio": "Loan-to-income ratio",
+    "annuity_income_ratio": "Payment-to-income ratio",
+    "bureau_debt_credit_ratio": "Debt-to-credit ratio",
+}
 
 
 class CounterfactualInput(BaseModel):
-    """Input schema for Counterfactual Generator."""
-    person_age: float = Field(description="Applicant age")
-    person_income: float = Field(description="Annual income")
-    person_home_ownership: str = Field(description="Home ownership")
-    person_emp_length: float = Field(description="Employment length")
-    loan_intent: str = Field(description="Loan intent")
-    loan_grade: str = Field(description="Loan grade")
-    loan_amnt: float = Field(description="Loan amount")
-    loan_int_rate: float = Field(description="Interest rate")
-    loan_percent_income: float = Field(description="Loan % of income")
-    cb_person_default_on_file: str = Field(description="Default on file")
-    cb_person_cred_hist_length: float = Field(description="Credit history")
+    """Input: applicant data as a flat dictionary."""
+    applicant_data: Dict[str, Any] = Field(
+        description="Dictionary of applicant features for counterfactual generation."
+    )
+    total_CFs: int = Field(default=3, description="Number of counterfactual paths to generate")
 
 
 class CounterfactualGenerator(BaseTool):
     """
-    Counterfactual generator - exact from run_counterfactuals() in notebook.
+    DiCE counterfactual generator.
 
-    Perturbs one feature at a time.
-    Tests specific changes to 6 features.
-    Returns top 5 single-feature changes that reach 670+.
+    Uses genetic optimization to find minimal, diverse changes to actionable
+    features that would flip a denied applicant to approved.
     """
-
-    def __init__(self, model=None):
-        super().__init__()
-        self.xgb_model = model
 
     @staticmethod
     def prob_to_score(p: float) -> int:
-        """Convert probability to score (same as credit_score_model)."""
         return int(850 - p * 550)
 
     @staticmethod
     def score_band(score: int) -> str:
-        """Get score band (same as credit_score_model)."""
         if score >= 800: return "Exceptional"
         if score >= 740: return "Very Good"
         if score >= 670: return "Good"
@@ -72,110 +82,28 @@ class CounterfactualGenerator(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Generates 'what-if' scenarios showing minimal changes to improve credit score. "
-            "Helps applicants understand what they can do to qualify for approval or better terms. "
-            "Provides actionable recommendations based on current financial situation."
+            "Generates 'what-if' scenarios showing minimal changes to get a loan approved. "
+            "Uses DiCE with genetic optimization to find diverse actionable paths. "
+            "Only suggests changes to features the applicant can realistically influence "
+            "(loan amount, income, employment, debt)."
         )
 
     @property
     def input_schema(self) -> type[BaseModel]:
         return CounterfactualInput
 
-    async def execute(
-        self,
-        person_age: float,
-        person_income: float,
-        person_home_ownership: str,
-        person_emp_length: float,
-        loan_intent: str,
-        loan_grade: str,
-        loan_amnt: float,
-        loan_int_rate: float,
-        loan_percent_income: float,
-        cb_person_default_on_file: str,
-        cb_person_cred_hist_length: float,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Generate counterfactuals - exact from run_counterfactuals() in notebook.
-
-        Returns list of dicts with action, feature, current, target, delta, new_score, new_band.
-        """
+    async def execute(self, applicant_data: Dict[str, Any] = None, total_CFs: int = 3, **kwargs) -> Dict[str, Any]:
         try:
-            if not self.xgb_model:
-                return {
-                    "success": False,
-                    "message": "Counterfactuals require trained XGBoost model"
-                }
+            if applicant_data is None:
+                applicant_data = kwargs
 
-            from sklearn.preprocessing import LabelEncoder
+            if not artifacts.loaded or artifacts.model is None:
+                return {"success": False, "message": "Model not loaded for counterfactual generation"}
 
-            # Build row
-            row = pd.Series({
-                "person_age": person_age,
-                "person_income": person_income,
-                "person_home_ownership": person_home_ownership,
-                "person_emp_length": person_emp_length,
-                "loan_intent": loan_intent,
-                "loan_grade": loan_grade,
-                "loan_amnt": loan_amnt,
-                "loan_int_rate": loan_int_rate,
-                "loan_percent_income": loan_percent_income,
-                "cb_person_default_on_file": cb_person_default_on_file,
-                "cb_person_cred_hist_length": cb_person_cred_hist_length,
-            })
+            if artifacts.dice_explainer is None:
+                return await self._fallback_perturbation(applicant_data)
 
-            # Encode categoricals (same as credit_score_model)
-            le = LabelEncoder()
-            for col in ["person_home_ownership", "loan_intent", "loan_grade", "cb_person_default_on_file"]:
-                if col in row and isinstance(row[col], str):
-                    if col == "person_home_ownership":
-                        le.fit(["RENT", "OWN", "MORTGAGE", "OTHER"])
-                    elif col == "loan_intent":
-                        le.fit(["PERSONAL", "EDUCATION", "MEDICAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"])
-                    elif col == "loan_grade":
-                        le.fit(["A", "B", "C", "D", "E", "F", "G"])
-                    elif col == "cb_person_default_on_file":
-                        le.fit(["N", "Y"])
-                    row[col] = le.transform([row[col]])[0]
-
-            # Perturbations (exact from notebook)
-            perturbations = {
-                "loan_amnt": [row["loan_amnt"] * 0.7, row["loan_amnt"] * 0.5],
-                "person_income": [row["person_income"] * 1.3, row["person_income"] * 1.6],
-                "loan_int_rate": [row["loan_int_rate"] * 0.8, row["loan_int_rate"] * 0.6],
-                "loan_percent_income": [row["loan_percent_income"] * 0.7, row["loan_percent_income"] * 0.5],
-                "person_emp_length": [row["person_emp_length"] + 2, row["person_emp_length"] + 4],
-                "cb_person_cred_hist_length": [row["cb_person_cred_hist_length"] + 2, row["cb_person_cred_hist_length"] + 4],
-            }
-
-            cfs = []
-            for feat, values in perturbations.items():
-                if feat not in FEATURE_NAMES:
-                    continue
-                for new_val in values:
-                    candidate = row[FEATURE_NAMES].copy()
-                    candidate[feat] = new_val
-                    new_prob = float(self.xgb_model.predict_proba(candidate.values.reshape(1, -1))[0, 1])
-                    new_score = self.prob_to_score(new_prob)
-                    if new_score >= 670:
-                        delta = new_val - row[feat]
-                        cfs.append({
-                            "action": f"{'Increase' if delta > 0 else 'Decrease'} {feat.replace('_', ' ')}",
-                            "feature": feat,
-                            "current": round(float(row[feat]), 2),
-                            "target": round(float(new_val), 2),
-                            "delta": round(float(delta), 2),
-                            "new_score": new_score,
-                            "new_band": self.score_band(new_score),
-                        })
-                        break
-
-            return {
-                "success": True,
-                "counterfactuals": cfs[:5],
-                "message": f"Found {len(cfs[:5])} counterfactual paths to approval"
-            }
+            return await self._generate_dice(applicant_data, total_CFs)
 
         except Exception as e:
             logger.error(f"Counterfactual generation failed: {e}")
@@ -185,6 +113,208 @@ class CounterfactualGenerator(BaseTool):
                 "message": f"Failed to generate counterfactuals: {str(e)}"
             }
 
+    async def _generate_dice(self, data: Dict[str, Any], total_CFs: int) -> Dict[str, Any]:
+        """Generate counterfactuals using DiCE."""
+        feature_names = artifacts.feature_names
+        row = pd.Series(index=feature_names, dtype=object)
 
-# Create singleton instance
+        for feat in feature_names:
+            if feat in data:
+                row[feat] = data[feat]
+
+        # Encode categoricals
+        if artifacts.label_encoders:
+            for col, le in artifacts.label_encoders.items():
+                if col in row.index and isinstance(row.get(col), str):
+                    try:
+                        row[col] = le.transform([row[col]])[0]
+                    except ValueError:
+                        row[col] = np.nan
+
+        # Impute missing
+        if artifacts.X_train is not None:
+            for feat in feature_names:
+                if pd.isna(row.get(feat)):
+                    if feat in artifacts.X_train.columns:
+                        row[feat] = float(artifacts.X_train[feat].median())
+                    else:
+                        row[feat] = 0.0
+
+        # Check if applicant has NaN (DiCE requirement)
+        query = pd.DataFrame([row[feature_names].values.astype(float)], columns=feature_names)
+        if query.isna().any().any():
+            return {"success": False, "message": "Applicant data has missing values that could not be imputed"}
+
+        # Get original prediction
+        orig_prob = float(artifacts.model.predict_proba(query.values)[0, 1])
+        orig_score = self.prob_to_score(orig_prob)
+
+        # If already approved, no counterfactuals needed
+        if orig_score >= 670:
+            return {
+                "success": True,
+                "counterfactuals": [],
+                "original_score": orig_score,
+                "message": f"Applicant already qualifies (score: {orig_score}). No changes needed."
+            }
+
+        # Determine actionable features
+        actionable = artifacts.actionable_features or list(PERMITTED_RANGES.keys())
+        actionable = [f for f in actionable if f in feature_names]
+
+        # Build permitted ranges for features that exist
+        permitted = {f: v for f, v in PERMITTED_RANGES.items() if f in actionable}
+
+        # Generate counterfactuals
+        try:
+            cf = artifacts.dice_explainer.generate_counterfactuals(
+                query_instances=query,
+                total_CFs=total_CFs,
+                desired_class="opposite",
+                features_to_vary=actionable,
+                permitted_range=permitted,
+            )
+        except Exception as e:
+            logger.warning(f"DiCE generation failed: {e}, falling back to perturbation")
+            return await self._fallback_perturbation(data)
+
+        # Parse results
+        cf_df = cf.cf_examples_list[0].final_cfs_df
+        if cf_df is None or len(cf_df) == 0:
+            return {
+                "success": True,
+                "counterfactuals": [],
+                "original_score": orig_score,
+                "original_probability": round(orig_prob, 4),
+                "message": "No actionable path to approval found. Risk factors are in immutable features."
+            }
+
+        labels = artifacts.feature_labels or DEFAULT_LABELS
+        paths = []
+
+        for i, (_, cf_row) in enumerate(cf_df.iterrows()):
+            changes = []
+            for col in actionable:
+                orig_val = float(query[col].values[0])
+                cf_val = float(cf_row[col])
+                if abs(orig_val - cf_val) > 1e-6:
+                    label = labels.get(col, col)
+                    if col == "DAYS_EMPLOYED":
+                        changes.append({
+                            "feature": col,
+                            "label": label,
+                            "current": f"{abs(orig_val)/365.25:.1f} years",
+                            "suggested": f"{abs(cf_val)/365.25:.1f} years",
+                        })
+                    elif orig_val > 1000:
+                        changes.append({
+                            "feature": col,
+                            "label": label,
+                            "current": round(orig_val, 0),
+                            "suggested": round(cf_val, 0),
+                        })
+                    else:
+                        changes.append({
+                            "feature": col,
+                            "label": label,
+                            "current": round(orig_val, 3),
+                            "suggested": round(cf_val, 3),
+                        })
+
+            new_prob = float(artifacts.model.predict_proba(
+                cf_row[feature_names].values.astype(float).reshape(1, -1)
+            )[0, 1])
+            new_score = self.prob_to_score(new_prob)
+
+            if changes:
+                paths.append({
+                    "path_number": i + 1,
+                    "changes": changes,
+                    "new_probability": round(new_prob, 4),
+                    "new_score": new_score,
+                    "new_band": self.score_band(new_score),
+                })
+
+        return {
+            "success": True,
+            "method": "DiCE (genetic)",
+            "original_probability": round(orig_prob, 4),
+            "original_score": orig_score,
+            "original_band": self.score_band(orig_score),
+            "counterfactuals": paths,
+            "message": f"Found {len(paths)} actionable paths to improve credit score"
+        }
+
+    async def _fallback_perturbation(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Simple perturbation fallback when DiCE is not available."""
+        feature_names = artifacts.feature_names
+        row = pd.Series(index=feature_names, dtype=object)
+
+        for feat in feature_names:
+            if feat in data:
+                row[feat] = data[feat]
+
+        if artifacts.label_encoders:
+            for col, le in artifacts.label_encoders.items():
+                if col in row.index and isinstance(row.get(col), str):
+                    try:
+                        row[col] = le.transform([row[col]])[0]
+                    except ValueError:
+                        row[col] = np.nan
+
+        if artifacts.X_train is not None:
+            for feat in feature_names:
+                if pd.isna(row.get(feat)):
+                    if feat in artifacts.X_train.columns:
+                        row[feat] = float(artifacts.X_train[feat].median())
+                    else:
+                        row[feat] = 0.0
+
+        X = row[feature_names].values.astype(float).reshape(1, -1)
+        orig_prob = float(artifacts.model.predict_proba(X)[0, 1])
+        orig_score = self.prob_to_score(orig_prob)
+
+        perturbations = {
+            "AMT_CREDIT": [0.7, 0.5],
+            "AMT_INCOME_TOTAL": [1.3, 1.6],
+            "AMT_ANNUITY": [0.7, 0.5],
+            "credit_income_ratio": [0.7, 0.5],
+        }
+
+        paths = []
+        for feat, multipliers in perturbations.items():
+            if feat not in feature_names:
+                continue
+            for mult in multipliers:
+                candidate = row[feature_names].copy().astype(float)
+                candidate[feat] = candidate[feat] * mult
+                new_prob = float(artifacts.model.predict_proba(candidate.values.reshape(1, -1))[0, 1])
+                new_score = self.prob_to_score(new_prob)
+                if new_score > orig_score:
+                    label = DEFAULT_LABELS.get(feat, feat)
+                    paths.append({
+                        "path_number": len(paths) + 1,
+                        "changes": [{
+                            "feature": feat,
+                            "label": label,
+                            "current": round(float(row[feat]), 2),
+                            "suggested": round(float(candidate[feat]), 2),
+                        }],
+                        "new_probability": round(new_prob, 4),
+                        "new_score": new_score,
+                        "new_band": self.score_band(new_score),
+                    })
+                    break
+
+        return {
+            "success": True,
+            "method": "perturbation (fallback)",
+            "original_probability": round(orig_prob, 4),
+            "original_score": orig_score,
+            "counterfactuals": paths[:5],
+            "message": f"Found {len(paths[:5])} paths (perturbation fallback, DiCE not available)"
+        }
+
+
+# Singleton
 counterfactual_generator = CounterfactualGenerator()

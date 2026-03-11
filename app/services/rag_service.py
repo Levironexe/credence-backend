@@ -21,12 +21,14 @@ class RAGService:
     RAG service for lending knowledge retrieval.
 
     Knowledge base includes:
-    - Basel III capital requirements
-    - Dodd-Frank Act provisions
-    - Fair Credit Reporting Act (FCRA)
-    - Equal Credit Opportunity Act (ECOA)
+    - Vietnam Law on Credit Institutions 2024 (Law 32/2024/QH15)
+    - SBV lending regulations (Circular 39/2016, amendments)
+    - Asset classification & provisioning (Circular 11/2021)
+    - Capital adequacy / Basel III (Circular 14/2025)
+    - CIC credit scoring framework (150-750 scale)
+    - AML requirements (Law 14/2022/QH15)
+    - Consumer protection (Law 19/2023/QH15)
     - SME lending best practices
-    - Industry-specific risk factors
     """
 
     def __init__(self):
