@@ -31,7 +31,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 from app.config import settings
-from app.ai.mcp_client import get_mcp_tools
+# from app.ai.mcp_client import get_mcp_tools
 from app.ai.nodes.classify import classify_node
 from app.ai.nodes.planning import planning_node
 from app.ai.nodes.tool_selection import tool_selection_node
@@ -222,38 +222,38 @@ Correct tool usage > reasoning > formatting.
         else:
             return str(output)
 
-    async def register_mcp_tools(self):
-        """
-        Register MCP tools from configured MCP servers.
+    # async def register_mcp_tools(self):
+    #     """
+    #     Register MCP tools from configured MCP servers.
 
-        This method fetches tools from MCP servers (Supabase, etc.) and
-        merges them with existing tools.
+    #     This method fetches tools from MCP servers (Supabase, etc.) and
+    #     merges them with existing tools.
 
-        MCP tools are added to self.tools and the graph is rebuilt.
+    #     MCP tools are added to self.tools and the graph is rebuilt.
 
-        Usage:
-            agent = LangGraphAgent()
-            await agent.register_mcp_tools()
-        """
-        try:
-            logger.info("📦 Fetching MCP tools...")
-            mcp_tools = await get_mcp_tools()
+    #     Usage:
+    #         agent = LangGraphAgent()
+    #         await agent.register_mcp_tools()
+    #     """
+    #     try:
+    #         logger.info("📦 Fetching MCP tools...")
+    #         mcp_tools = await get_mcp_tools()
 
-            if mcp_tools:
-                # Merge with existing tools
-                self.tools.extend(mcp_tools)
-                self.tool_node = ToolNode(self.tools)
+    #         if mcp_tools:
+    #             # Merge with existing tools
+    #             self.tools.extend(mcp_tools)
+    #             self.tool_node = ToolNode(self.tools)
 
-                # Rebuild graph with combined tools
-                self.app = self._build_graph()
+    #             # Rebuild graph with combined tools
+    #             self.app = self._build_graph()
 
-                logger.info(f"✅ Registered {len(mcp_tools)} MCP tools: {[t.name for t in mcp_tools]}")
-            else:
-                logger.warning("⚠️ No MCP tools available")
+    #             logger.info(f"✅ Registered {len(mcp_tools)} MCP tools: {[t.name for t in mcp_tools]}")
+    #         else:
+    #             logger.warning("⚠️ No MCP tools available")
 
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to register MCP tools: {str(e)}")
-            logger.info("Continuing without MCP tools")
+    #     except Exception as e:
+    #         logger.warning(f"⚠️ Failed to register MCP tools: {str(e)}")
+    #         logger.info("Continuing without MCP tools")
 
     def register_tools(self, tools: list):
         """
