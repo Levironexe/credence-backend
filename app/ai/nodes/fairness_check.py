@@ -59,44 +59,56 @@ async def fairness_check_node(
     logger.info(f"   Flipping protected attributes ({', '.join(protected_attributes)})...")
 
     try:
-        # Call fairness validator
-        result = await fairness_tool.ainvoke({
-            "features": features,
-            "protected_attributes": protected_attributes
-        })
+        # Call fairness validator (no input needed — operates on test set)
+        result = await fairness_tool.ainvoke({})
 
         fairness_passed = result.get("fairness_passed", True)
-        demographic_parity_difference = result.get("demographic_parity_difference", 0.0)
-        bias_detected = result.get("bias_detected", False)
+        gender_metrics = result.get("gender_metrics", {})
+        age_metrics = result.get("age_group_metrics", {})
 
-        if bias_detected:
-            logger.info("   ⚠️ Bias detected — flagging for human review")
-            route_decision = "rejected"  # Always reject if bias detected
-        elif not fairness_passed:
+        if not fairness_passed:
             logger.info("   ⚠️ Fairness check failed — flagging for human review")
             route_decision = "rejected"
         else:
             logger.info("   ✅ No bias detected — decision is fair")
-            # Route based on credit score
             route_decision = "approved" if credit_score >= 670 else "rejected"
+
+        # Log metrics
+        dpd_g = gender_metrics.get("demographic_parity_difference", 0)
+        eod_g = gender_metrics.get("equalized_odds_difference", 0)
+        logger.info(f"   Gender: DPD={dpd_g:.4f}, EOD={eod_g:.4f}")
+        dpd_a = age_metrics.get("demographic_parity_difference", 0)
+        eod_a = age_metrics.get("equalized_odds_difference", 0)
+        logger.info(f"   Age: DPD={dpd_a:.4f}, EOD={eod_a:.4f}")
 
         # Update analysis steps
         analysis_steps = state.get("analysis_steps", [])
         analysis_steps.append(
             f"Fairness check: {'passed' if fairness_passed else 'failed'}, "
-            f"bias: {'detected' if bias_detected else 'none'}, "
-            f"parity diff: {demographic_parity_difference:.3f}"
+            f"gender DPD: {dpd_g:.4f}, age DPD: {dpd_a:.4f}"
         )
+
+        # Inject fairness results as a message so downstream LLM nodes can see them
+        from langchain_core.messages import AIMessage
+        fairness_status = "PASSED" if fairness_passed else "FAILED — flagged for human review"
+        fairness_message = AIMessage(content=(
+            f"**[Fairness Validation Result]**\n"
+            f"- Status: **{fairness_status}**\n"
+            f"- Gender: Demographic Parity Diff={dpd_g:.4f}, Equalized Odds Diff={eod_g:.4f}\n"
+            f"- Age: Demographic Parity Diff={dpd_a:.4f}, Equalized Odds Diff={eod_a:.4f}\n"
+            f"- Compliance: {'No bias detected' if fairness_passed else 'Potential bias detected — requires review'}"
+        ))
 
         return {
             **state,
             "fairness_check_results": {
                 "fairness_passed": fairness_passed,
-                "demographic_parity_difference": demographic_parity_difference,
-                "bias_detected": bias_detected
+                "gender_metrics": gender_metrics,
+                "age_group_metrics": age_metrics,
             },
             "route_to": route_decision,
             "analysis_steps": analysis_steps,
+            "messages": list(state.get("messages", [])) + [fairness_message],
         }
 
     except Exception as e:

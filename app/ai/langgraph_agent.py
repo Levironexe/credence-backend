@@ -70,7 +70,7 @@ BASE_STEPS = 3
 # Risk assessment
 DEFAULT_RISK_LEVEL = "medium"
 
-# Credit score scale (FICO-equivalent)
+# Credit score scale (Credence Score, 300-850)
 CREDIT_SCORE_MIN = 300
 CREDIT_SCORE_MAX = 850
 
@@ -170,6 +170,21 @@ Correct tool usage > reasoning > formatting.
 
         logger.info(f"LangGraph agent initialized with model: {anthropic_model}")
 
+    @staticmethod
+    def _sanitize_for_json(obj: Any) -> Any:
+        """
+        Recursively replace NaN/Infinity values with None for valid JSON serialization.
+        PostgreSQL JSON columns reject NaN tokens.
+        """
+        import math
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        elif isinstance(obj, dict):
+            return {k: LangGraphAgent._sanitize_for_json(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [LangGraphAgent._sanitize_for_json(v) for v in obj]
+        return obj
+
     def _format_tool_output(self, output: Any) -> str:
         """
         Format tool output for consistent display in SSE stream.
@@ -191,17 +206,15 @@ Correct tool usage > reasoning > formatting.
             try:
                 # Try to parse if it's a JSON string
                 parsed_output = json.loads(output_content)
-                return json.dumps(parsed_output, indent=2)
+                return json.dumps(self._sanitize_for_json(parsed_output), indent=2)
             except (json.JSONDecodeError, TypeError):
                 return output_content
         elif isinstance(output, dict):
-            # Pretty print dict
-            return json.dumps(output, indent=2)
+            return json.dumps(self._sanitize_for_json(output), indent=2)
         elif isinstance(output, str):
             try:
-                # Try to parse JSON string
                 parsed = json.loads(output)
-                return json.dumps(parsed, indent=2)
+                return json.dumps(self._sanitize_for_json(parsed), indent=2)
             except (json.JSONDecodeError, TypeError):
                 return output
         else:
@@ -455,6 +468,37 @@ Correct tool usage > reasoning > formatting.
             }
             return
 
+        # Scan messages for PDF uploads to populate documents_processed
+        documents_processed = []
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                for part in content:
+                    text = part.get("text", "")
+                    pdf_matches = re.findall(r'\[PDF uploaded:\s*(.+?),\s*URL:\s*(.+?)\]', text)
+                    for name, url in pdf_matches:
+                        # Extract filename from URL
+                        filename = url.strip().split("/")[-1]
+                        documents_processed.append({
+                            "type": "pdf",
+                            "name": name.strip(),
+                            "url": url.strip(),
+                            "file_path": filename,
+                        })
+            elif isinstance(content, str):
+                pdf_matches = re.findall(r'\[PDF uploaded:\s*(.+?),\s*URL:\s*(.+?)\]', content)
+                for name, url in pdf_matches:
+                    filename = url.strip().split("/")[-1]
+                    documents_processed.append({
+                        "type": "pdf",
+                        "name": name.strip(),
+                        "url": url.strip(),
+                        "file_path": filename,
+                    })
+
+        if documents_processed:
+            logger.info(f"Found {len(documents_processed)} PDF document(s) in messages")
+
         # Initialize investigation state
         initial_state: LoanAssessmentState = {
             "messages": lc_messages,
@@ -462,6 +506,7 @@ Correct tool usage > reasoning > formatting.
             "tool_results": [],
             "final_response": "",
             "extracted_fields": {},  # Populated by data_completeness_node
+            "documents_processed": documents_processed,
         }
 
         try:
@@ -583,7 +628,7 @@ Correct tool usage > reasoning > formatting.
 
         # Tool execution start
         elif event_type == "on_tool_start":
-            tool_input = data.get("input", {})
+            tool_input = self._sanitize_for_json(data.get("input", {}))
             tool_name = name
 
             # Store tool info in buffer (keyed by run_id)

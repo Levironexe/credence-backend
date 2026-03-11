@@ -28,17 +28,17 @@ class LendingKnowledgeRetriever(BaseTool):
     Retrieves relevant lending knowledge from RAG database.
 
     Use this tool to:
-    - Look up regulatory requirements (Basel III, FCRA, ECOA, Dodd-Frank)
-    - Find best practices for financial analysis
-    - Understand risk assessment methodologies
-    - Get guidance on credit score interpretation
-    - Learn about alternative data usage
+    - Look up Vietnamese lending regulations (Law 32/2024, Circular 39, SBV rules)
+    - Find best practices for credit assessment
+    - Understand risk assessment methodologies and loan classification
+    - Get guidance on credit score interpretation (Credence Score + CIC scale)
+    - Learn about capital adequacy and provisioning requirements
 
     Example queries:
-    - "What are the FCRA requirements for adverse action notices?"
+    - "What are the lending limits under Vietnam's 2024 Law on Credit Institutions?"
     - "What financial ratios indicate high default risk?"
     - "How should I interpret a credit score of 680?"
-    - "What alternative data can I use for thin-file applicants?"
+    - "What are the loan classification groups under Circular 11?"
     """
 
     @property
@@ -48,8 +48,8 @@ class LendingKnowledgeRetriever(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Retrieves relevant lending regulations, policies, and best practices from the knowledge base. "
-            "Use this to look up regulatory requirements (FCRA, ECOA, Basel III, Dodd-Frank), "
+            "Retrieves relevant Vietnamese lending regulations, policies, and best practices from the knowledge base. "
+            "Use this to look up regulatory requirements (SBV circulars, Law on Credit Institutions, CIC scoring), "
             "financial analysis best practices, risk assessment methodologies, and credit scoring guidelines."
         )
 

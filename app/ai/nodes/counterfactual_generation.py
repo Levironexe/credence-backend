@@ -52,19 +52,20 @@ async def counterfactual_generation_node(
             logger.warning("⚠️ No extracted features available — cannot generate counterfactuals")
             return state
 
-        # Call counterfactual generator with individual feature parameters
-        # The tool expects: person_age, person_income, person_home_ownership, etc.
-        result = await counterfactual_tool.ainvoke(extracted_fields)
+        # Call counterfactual generator (wrap in applicant_data per tool schema)
+        result = await counterfactual_tool.ainvoke({"applicant_data": extracted_fields})
 
         counterfactuals = result.get("counterfactuals", [])
+        original_score = result.get("original_score", current_score)
 
-        logger.info(f"   ✅ {len(counterfactuals)} improvement path(s) found")
+        logger.info(f"   ✅ {len(counterfactuals)} improvement path(s) found (original score: {original_score})")
 
         # Log each counterfactual
         for i, cf in enumerate(counterfactuals[:3], 1):  # Log top 3
-            changes = cf.get("changes", {})
-            expected_score = cf.get("expected_score", 0)
-            logger.info(f"      Path {i}: {changes} → score: {expected_score}")
+            changes = cf.get("changes", [])
+            new_score = cf.get("new_score", 0)
+            change_summary = ", ".join(c.get("label", c.get("feature", "?")) for c in changes)
+            logger.info(f"      Path {i}: [{change_summary}] → score: {new_score}")
 
         # Update analysis steps
         analysis_steps = state.get("analysis_steps", [])
@@ -72,10 +73,34 @@ async def counterfactual_generation_node(
             f"Counterfactual generation: {len(counterfactuals)} improvement paths identified"
         )
 
+        # Inject counterfactual results as a pre-formatted table the LLM must copy verbatim
+        from langchain_core.messages import AIMessage
+        cf_lines = [f"**[Counterfactual Analysis — How to Improve from Score {original_score} to 670+]**"]
+        cf_lines.append("")
+        cf_lines.append("COPY THE TABLES BELOW EXACTLY INTO THE REPORT. Do NOT paraphrase or round values.")
+        for i, cf in enumerate(counterfactuals[:3], 1):
+            changes = cf.get("changes", [])
+            new_score = cf.get("new_score", 0)
+            cf_lines.append(f"\n### Path {i} (projected score: {new_score})")
+            cf_lines.append("| Change | Current Value | Target Value |")
+            cf_lines.append("|--------|--------------|--------------|")
+            for change in changes:
+                label = change.get("label", change.get("feature", "?"))
+                old_val = change.get("current", "?")
+                new_val = change.get("suggested", change.get("target", "?"))
+                # Format numbers consistently
+                if isinstance(old_val, float):
+                    old_val = f"{old_val:,.2f}"
+                if isinstance(new_val, float):
+                    new_val = f"{new_val:,.2f}"
+                cf_lines.append(f"| {label} | {old_val} | {new_val} |")
+        cf_message = AIMessage(content="\n".join(cf_lines))
+
         return {
             **state,
             "counterfactuals": counterfactuals,
             "analysis_steps": analysis_steps,
+            "messages": list(state.get("messages", [])) + [cf_message],
         }
 
     except Exception as e:
