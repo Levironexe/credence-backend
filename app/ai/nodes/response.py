@@ -42,7 +42,7 @@ async def response_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
 
 Write one sentence: "The following changes would bring the applicant above the 670 approval threshold:"
 
-Then COPY the Path tables EXACTLY as they appear in the [Counterfactual Analysis] message. Do NOT rephrase, round, or summarize the values — use the exact Current Value and Target Value numbers from the message. Include up to 3 paths."""
+Then COPY the Path tables EXACTLY as they appear in the [Counterfactual Analysis] message — including the ### Path headings with "+X pts", and the arrow deltas like (↓-318,480) or (↑+63,000) in the Target Value column. Do NOT remove, rephrase, round, or summarize ANY part of the tables. Reproduce them character-for-character. Include up to 3 paths."""
             else:
                 counterfactual_section = ""
 

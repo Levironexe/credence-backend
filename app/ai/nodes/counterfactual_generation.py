@@ -75,25 +75,73 @@ async def counterfactual_generation_node(
 
         # Inject counterfactual results as a pre-formatted table the LLM must copy verbatim
         from langchain_core.messages import AIMessage
+
+        # Features where LOWER is better for the applicant
+        LOWER_IS_BETTER = {
+            "AMT_CREDIT", "AMT_ANNUITY", "AMT_GOODS_PRICE",
+            "bureau_debt_sum", "bureau_active_count",
+            "credit_income_ratio", "annuity_income_ratio", "bureau_debt_credit_ratio",
+        }
+
+        def _parse_numeric(val):
+            """Extract numeric value from string like '4.0 years' or '385,308.00'."""
+            if isinstance(val, (int, float)):
+                return float(val)
+            if isinstance(val, str):
+                import re
+                cleaned = re.sub(r'[^\d.\-]', '', val.replace(',', ''))
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    return None
+            return None
+
+        def _format_delta(old_val, new_val, feature_name):
+            """Format delta string with arrow indicator."""
+            old_num = _parse_numeric(old_val)
+            new_num = _parse_numeric(new_val)
+            if old_num is None or new_num is None:
+                return ""
+            delta = new_num - old_num
+            if abs(delta) < 0.001:
+                return ""
+            arrow = "↑" if delta > 0 else "↓"
+            sign = "+" if delta > 0 else ""
+            # Format delta value
+            abs_delta = abs(delta)
+            if abs_delta >= 1000:
+                delta_str = f"{sign}{delta:,.0f}"
+            elif abs_delta >= 1:
+                delta_str = f"{sign}{delta:,.1f}"
+            else:
+                delta_str = f"{sign}{delta:,.3f}"
+            return f" ({arrow}{delta_str})"
+
         cf_lines = [f"**[Counterfactual Analysis — How to Improve from Score {original_score} to 670+]**"]
         cf_lines.append("")
-        cf_lines.append("COPY THE TABLES BELOW EXACTLY INTO THE REPORT. Do NOT paraphrase or round values.")
+        cf_lines.append("COPY THE TABLES BELOW EXACTLY INTO THE REPORT — including the (↓/↑ delta) values in the Target column. Do NOT remove, paraphrase, or round ANY values.")
         for i, cf in enumerate(counterfactuals[:3], 1):
             changes = cf.get("changes", [])
             new_score = cf.get("new_score", 0)
-            cf_lines.append(f"\n### Path {i} (projected score: {new_score})")
+            score_gain = new_score - original_score
+            cf_lines.append(f"\n### Path {i} (projected score: {new_score}, +{score_gain} pts)")
             cf_lines.append("| Change | Current Value | Target Value |")
             cf_lines.append("|--------|--------------|--------------|")
             for change in changes:
                 label = change.get("label", change.get("feature", "?"))
+                feature = change.get("feature", "")
                 old_val = change.get("current", "?")
                 new_val = change.get("suggested", change.get("target", "?"))
                 # Format numbers consistently
+                raw_old = old_val
+                raw_new = new_val
                 if isinstance(old_val, float):
                     old_val = f"{old_val:,.2f}"
                 if isinstance(new_val, float):
                     new_val = f"{new_val:,.2f}"
-                cf_lines.append(f"| {label} | {old_val} | {new_val} |")
+                # Compute delta indicator
+                delta_str = _format_delta(raw_old, raw_new, feature)
+                cf_lines.append(f"| {label} | {old_val} | {new_val}{delta_str} |")
         cf_message = AIMessage(content="\n".join(cf_lines))
 
         return {
