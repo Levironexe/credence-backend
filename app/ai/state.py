@@ -84,6 +84,7 @@ class LoanAssessmentState(TypedDict):
     # Business intelligence
     industry_benchmarks: dict  # Peer comparison metrics for borrower's industry
     alternative_data: dict  # Non-traditional data: mobile money, POS revenue, utility payments
+    merchant_profile: dict  # Merchant data fetched from MCP Supabase (ID, name, transactions, etc.)
 
     # Tool execution tracking
     tools_used: list[str]  # Names of tools invoked during assessment
