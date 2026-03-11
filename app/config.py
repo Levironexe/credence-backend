@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = 100
     rag_retrieval_k: int = 5
 
+    # MCP (Model Context Protocol) Settings
+    mcp_supabase_url: str = ""  # Supabase MCP server SSE endpoint (e.g., "http://localhost:8000/sse")
+    mcp_supabase_transport: str = "sse"  # Transport type: "sse" or "stdio"
+
     # Database connection details (parsed from database_url or set individually)
     database_host: str = "localhost"
     database_port: int = 5432
