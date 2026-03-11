@@ -197,11 +197,16 @@ class CreditScoreModel(BaseTool):
 
             logger.info(f"Computing credit score for loan_amnt={loan_amnt}, income={person_income}")
 
-            # Use XGBoost model if available, otherwise fallback to rule-based
-            if self.use_ml_model and self.xgb_model is not None:
-                return await self._compute_ml_score(features)
-            else:
-                return await self._compute_rule_based_score(features)
+            # FAIL if XGBoost model not available - NO FALLBACK
+            if not self.use_ml_model or self.xgb_model is None:
+                error_msg = "XGBoost model not loaded - cannot compute credit score"
+                logger.error(f"❌ {error_msg}")
+                return {
+                    "success": False,
+                    "message": error_msg
+                }
+
+            return await self._compute_ml_score(features)
 
         except Exception as e:
             logger.error(f"Credit score calculation failed: {e}")
@@ -213,105 +218,52 @@ class CreditScoreModel(BaseTool):
 
     async def _compute_ml_score(self, features: Dict[str, Any]) -> Dict[str, Any]:
         """Compute credit score using XGBoost model - exact from run_scoring() in notebook."""
-        try:
-            from sklearn.preprocessing import LabelEncoder
+        from sklearn.preprocessing import LabelEncoder
 
-            # Preprocess features (same as notebook)
-            row = pd.Series(features)
+        # Preprocess features (same as notebook)
+        row = pd.Series(features)
 
-            # Encode categorical columns
-            le = LabelEncoder()
-            for col in CAT_COLS:
-                if col in row and isinstance(row[col], str):
-                    # Use same encoding as training (fit on common values)
-                    if col == "person_home_ownership":
-                        le.fit(["RENT", "OWN", "MORTGAGE", "OTHER"])
-                    elif col == "loan_intent":
-                        le.fit(["PERSONAL", "EDUCATION", "MEDICAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"])
-                    elif col == "loan_grade":
-                        le.fit(["A", "B", "C", "D", "E", "F", "G"])
-                    elif col == "cb_person_default_on_file":
-                        le.fit(["N", "Y"])
-                    row[col] = le.transform([row[col]])[0]
+        # Encode categorical columns
+        le = LabelEncoder()
+        for col in CAT_COLS:
+            if col in row and isinstance(row[col], str):
+                # Use same encoding as training (fit on common values)
+                if col == "person_home_ownership":
+                    le.fit(["RENT", "OWN", "MORTGAGE", "OTHER"])
+                elif col == "loan_intent":
+                    le.fit(["PERSONAL", "EDUCATION", "MEDICAL", "VENTURE", "HOMEIMPROVEMENT", "DEBTCONSOLIDATION"])
+                elif col == "loan_grade":
+                    le.fit(["A", "B", "C", "D", "E", "F", "G"])
+                elif col == "cb_person_default_on_file":
+                    le.fit(["N", "Y"])
+                row[col] = le.transform([row[col]])[0]
 
-            # Fill missing with median (if X_train available)
-            if self.X_train is not None:
-                for col in ["person_emp_length", "loan_int_rate"]:
-                    if pd.isna(row.get(col)):
-                        row[col] = float(self.X_train[col].median())
+        # Fill missing with median (if X_train available)
+        if self.X_train is not None:
+            for col in ["person_emp_length", "loan_int_rate"]:
+                if pd.isna(row.get(col)):
+                    row[col] = float(self.X_train[col].median())
 
-            # Predict default probability (exact from notebook)
-            prob = float(self.xgb_model.predict_proba(row[FEATURE_NAMES].values.reshape(1, -1))[0, 1])
+        # Predict default probability (exact from notebook)
+        prob = float(self.xgb_model.predict_proba(row[FEATURE_NAMES].values.reshape(1, -1))[0, 1])
 
-            # Convert to credit score (exact from notebook)
-            credit_score = self.prob_to_score(prob)
+        # Convert to credit score (exact from notebook)
+        credit_score = self.prob_to_score(prob)
 
-            return {
-                "success": True,
-                "default_probability": prob,
-                "credit_score": credit_score,
-                "score_band": self.score_band(credit_score),
-                "decision": self.decision_from_score(credit_score),
-                "approved": credit_score >= 670,
-                "model_type": "XGBoost",
-                "message": f"Credit score: {credit_score} ({self.score_band(credit_score)})"
-            }
-
-        except Exception as e:
-            logger.error(f"ML scoring failed: {e} - falling back to rule-based")
-            return await self._compute_rule_based_score(features)
-
-    async def _compute_rule_based_score(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        """Compute credit score using rule-based algorithm (fallback when no model)."""
-        # Simple rule-based scoring based on loan_percent_income and other factors
-        loan_percent_income = features.get("loan_percent_income", 0.5)
-        person_age = features.get("person_age", 30)
-        person_emp_length = features.get("person_emp_length", 2)
-        cb_person_default_on_file = features.get("cb_person_default_on_file", "N")
-
-        base_score = 600
-
-        # Loan as percent of income
-        if loan_percent_income < 0.1:
-            base_score += 100
-        elif loan_percent_income < 0.2:
-            base_score += 50
-        elif loan_percent_income < 0.3:
-            base_score += 20
-        elif loan_percent_income > 0.5:
-            base_score -= 80
-
-        # Age factor
-        if person_age >= 40:
-            base_score += 30
-        elif person_age < 25:
-            base_score -= 20
-
-        # Employment length
-        if person_emp_length >= 10:
-            base_score += 40
-        elif person_emp_length >= 5:
-            base_score += 20
-        elif person_emp_length < 1:
-            base_score -= 30
-
-        # Default history
-        if cb_person_default_on_file == "Y":
-            base_score -= 100
-
-        credit_score = max(300, min(850, base_score))
-        default_probability = (850 - credit_score) / 550.0
+        logger.info(f"✅ XGBoost prediction: score={credit_score}, prob={prob:.3f}")
 
         return {
             "success": True,
-            "default_probability": default_probability,
-            "credit_score": int(credit_score),
+            "default_probability": prob,
+            "credit_score": credit_score,
             "score_band": self.score_band(credit_score),
             "decision": self.decision_from_score(credit_score),
             "approved": credit_score >= 670,
-            "model_type": "rule-based",
-            "message": f"Credit score: {int(credit_score)} ({self.score_band(credit_score)}) - RULE-BASED"
+            "model_type": "XGBoost",
+            "confidence": 1.0 - min(abs(0.5 - prob) * 2, 1.0),  # Higher confidence when prob far from 0.5
+            "message": f"Credit score: {credit_score} ({self.score_band(credit_score)})"
         }
+
 
 
 # Create singleton instance

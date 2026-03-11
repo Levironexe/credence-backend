@@ -134,10 +134,11 @@ class FairnessValidator(BaseTool):
             eod_a = equalized_odds_difference(self.y_test, y_pred_all, sensitive_features=age_group_port)
 
             # Apply thresholds (exact from notebook lines 417, 421, 426, 429)
-            gender_dp_pass = abs(dpd_g) < 0.05
-            gender_eod_pass = abs(eod_g) < 0.10
-            age_dp_pass = abs(dpd_a) < 0.05
-            age_eod_pass = abs(eod_a) < 0.10
+            # Convert numpy bools to Python bools for JSON serialization
+            gender_dp_pass = bool(abs(dpd_g) < 0.05)
+            gender_eod_pass = bool(abs(eod_g) < 0.10)
+            age_dp_pass = bool(abs(dpd_a) < 0.05)
+            age_eod_pass = bool(abs(eod_a) < 0.10)
 
             all_pass = gender_dp_pass and gender_eod_pass and age_dp_pass and age_eod_pass
 
