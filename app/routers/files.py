@@ -20,9 +20,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 ALLOWED_EXTENSIONS = {
     "image/jpeg",
     "image/png",
+    "application/pdf",
     # "image/gif",
     # "image/webp",
-    # # "application/pdf",
     # "text/plain",
     # "text/csv",
     # "application/json",
@@ -43,7 +43,7 @@ async def upload_file(
     if file.content_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="File type should be JPEG or PNG",
+            detail="File type should be JPEG, PNG, or PDF",
         )
 
     # Read file content

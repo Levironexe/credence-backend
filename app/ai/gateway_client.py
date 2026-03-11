@@ -14,6 +14,9 @@ from app.tools.knowledge.lending_knowledge_retriever import lending_knowledge_re
 from app.tools.explainability.shap_explainer import shap_explainer
 from app.tools.explainability.counterfactual_generator import counterfactual_generator
 from app.tools.fairness.fairness_validator import fairness_validator
+from app.tools.credit_scoring.applicant_lookup import applicant_lookup
+from app.tools.document_processing.pdf_extractor import pdf_extractor
+from app.tools.document_processing.bank_statement_parser import bank_statement_parser
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,9 @@ class GatewayClient:
                 shap_explainer.to_langchain_tool(),
                 counterfactual_generator.to_langchain_tool(),
                 fairness_validator.to_langchain_tool(),
+                applicant_lookup.to_langchain_tool(),
+                pdf_extractor.to_langchain_tool(),
+                bank_statement_parser.to_langchain_tool(),
             ]
 
             self._agent.register_tools(tools)

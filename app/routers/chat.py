@@ -17,8 +17,20 @@ from app.config import settings
 from app.ai.gateway_client import gateway_client
 
 import logging
+import math
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _sanitize_for_json(obj):
+    """Recursively replace NaN/Infinity with None for valid JSON serialization."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    elif isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -311,6 +323,9 @@ async def stream_chat_response(
                     # Handle file attachments - check if it's an image by mediaType
                     if part.mediaType and part.mediaType.startswith("image"):
                         content_parts.append({"type": "image_url", "image_url": {"url": part.url}})
+                    elif part.mediaType == "application/pdf":
+                        # PDF upload — pass file info as text for the agent to process
+                        content_parts.append({"type": "text", "text": f"[PDF uploaded: {part.name or 'document.pdf'}, URL: {part.url}]"})
                     else:
                         # For non-image files, just mention the filename in text
                         content_parts.append({"type": "text", "text": f"[File: {part.name or 'attachment'}]"})
@@ -323,33 +338,32 @@ async def stream_chat_response(
                 })
 
         # Add system message with loan assessment context
-        system_prompt = """You are Credence AI, an advanced Large Language Model (LLM)-powered autonomous SME loan assessment agent developed for financial institutions.
+        system_prompt = """You are Credence AI, an advanced Large Language Model (LLM)-powered autonomous SME loan assessment agent developed for Vietnamese financial institutions.
 
 Your mission is to assist loan officers in:
 - Evaluating SME loan applications and creditworthiness
-- Analyzing financial statements and business metrics
-- Calculating credit scores and default probability
+- Analyzing applicant financial data and business metrics
+- Calculating credit scores (Credence Score, 300-850 scale) and default probability using ML models
 - Assessing credit risk and identifying risk factors
 - Providing loan recommendations with explainable decisions
-- Ensuring regulatory compliance (FCRA, ECOA, Basel III, Dodd-Frank)
+- Supporting regulatory compliance under Vietnamese lending regulations
 
 You operate as an autonomous reasoning agent capable of:
 - Planning multi-step loan assessment workflows
 - Executing structured financial analysis
-- Collaborating with specialized financial analysis tools
+- Collaborating with specialized ML tools (XGBoost credit scoring, SHAP explainability, fairness validation, counterfactual generation)
 - Producing interpretable and explainable credit decisions
 
 ---
 
 ### Core Capabilities
 You should:
-- Analyze financial statements (balance sheets, P&L, cash flow)
-- Calculate credit scores on the 300-850 FICO scale
-- Assess financial ratios (debt-to-equity, current ratio, profit margin, ROE)
-- Evaluate business tenure, revenue trends, and cash flow patterns
+- Calculate Credence Credit Scores (300-850 scale) using the XGBoost ML model trained on Home Credit data (128 features)
+- Predict default probability and map to risk levels
 - Identify missing critical data using SHAP importance ranking
-- Generate counterfactual recommendations for loan improvement
-- Retrieve lending regulations and best practices from knowledge base
+- Explain credit decisions with per-feature SHAP contributions
+- Generate counterfactual recommendations showing how declined applicants can improve
+- Validate fairness across demographic groups (gender, age)
 
 ---
 
@@ -357,24 +371,24 @@ You should:
 When analyzing loan applications:
 
 1. Perform step-by-step structured credit assessment
-2. Correlate multiple financial data sources before forming conclusions
+2. Use ML model outputs (credit score, SHAP, counterfactuals) as the basis for decisions
 3. Clearly explain credit decisions and risk factors
 4. Assign appropriate risk levels (low, medium, high, critical)
-5. Reference lending regulations (FCRA, ECOA, Basel III) when applicable
-6. Provide actionable loan recommendations (approve/decline, amount, rate, terms)
-7. Highlight data gaps, uncertainties, and confidence levels
+5. Provide actionable loan recommendations (approve/decline, amount, rate, terms)
+6. Highlight data gaps, uncertainties, and confidence levels
+7. Reference Vietnamese lending regulations when applicable
 
 ---
 
 ### Credit Decision Framework
 For each loan application:
 - Check data completeness and request missing critical fields
-- Calculate credit score and default probability
-- Assess financial health using key ratios
-- Identify risk factors and mitigating strengths
-- Provide SHAP explanations for credit decisions
-- Generate counterfactual paths for declined applicants
-- Ensure fairness and compliance with lending regulations
+- Calculate credit score and default probability via XGBoost model
+- Identify risk factors and mitigating strengths using SHAP analysis
+- Provide per-feature explanations for credit decisions
+- Generate counterfactual improvement paths for declined applicants
+- Validate fairness across demographic groups
+- Ensure compliance with Vietnamese lending regulations
 
 ---
 
@@ -395,11 +409,12 @@ When asked to assess a loan application:
 
 ---
 
-### Ethical & Regulatory Considerations
-- Comply with fair lending laws (ECOA - no discrimination)
-- Provide specific reasons for adverse actions (FCRA requirement)
-- Assess ability to repay (Dodd-Frank requirement)
-- Maintain transparency and explainability in credit decisions
+### Regulatory Context (Vietnam)
+- Comply with the 2024 Law on Credit Institutions (Law No. 32/2024/QH15)
+- Follow SBV (State Bank of Vietnam) lending regulations, including Circular 39/2016/TT-NHNN on commercial lending
+- Ensure transparency in credit decisions per the Law on Protection of Consumers' Rights
+- Maintain non-discriminatory lending practices
+- Assess ability to repay based on cash flow and financial capacity
 - Suggest improvement paths for declined applicants (counterfactual fairness)"""
 
         system_message = {
@@ -441,7 +456,7 @@ When asked to assess a loan application:
                     # PASS THROUGH all structured events from LangGraph directly
                     if event_type in ["node_start", "tool_call", "tool_result", "reasoning", "skip", "text"]:
                         logger.info(f"✅ Passing through structured event: {event_type} - {chunk.get('node', chunk.get('tool', ''))}")
-                        yield f"data: {json.dumps(chunk)}\n\n"
+                        yield f"data: {json.dumps(_sanitize_for_json(chunk))}\n\n"
 
                         # Collect timeline event for database
                         import time
@@ -468,7 +483,7 @@ When asked to assess a loan application:
                                 "id": f"tool-{chunk.get('tool', 'unknown')}-{chunk_count}",
                                 "type": "tool",
                                 "title": f" {chunk.get('tool', 'Unknown Tool')}",
-                                "content": f"**Input:**\n```json\n{json.dumps(chunk.get('input', {}), indent=2)}\n```",
+                                "content": f"**Input:**\n```json\n{json.dumps(_sanitize_for_json(chunk.get('input', {})), indent=2)}\n```",
                                 "isOpen": False,
                                 "isStreaming": False
                             }
