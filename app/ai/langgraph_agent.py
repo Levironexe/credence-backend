@@ -669,29 +669,39 @@ Correct tool usage > reasoning > formatting.
                 node_name = metadata.get("langgraph_node", "")
 
                 if node_name in USER_FACING_NODES:
-                    # Inject SHAP waterfall plot: detect the heading before
-                    # the SHAP table and emit the image after it, before the table
+                    # Inject SHAP waterfall plot before the SHAP table.
+                    # Buffer tokens until we see "| # |" (table header),
+                    # then flush: text before table → image → table line onward.
+                    # Safety: if buffer exceeds 4KB without match, flush it
+                    # (the heading simply wasn't there this time).
                     if not self._waterfall_emitted and self._waterfall_plot:
-                        prev_buf = self._response_text_buf
                         self._response_text_buf += content
-                        # Detect "| #" — the very start of the SHAP table header
-                        if "| #" in self._response_text_buf and "| #" not in prev_buf:
+                        table_marker = "| # |"
+                        if table_marker in self._response_text_buf:
                             self._waterfall_emitted = True
-                            # Split content: emit the image before "| #"
-                            idx = self._response_text_buf.index("| #")
-                            chars_before_table = idx - len(prev_buf)
-                            if chars_before_table > 0:
-                                # Part of current chunk is before the table
-                                yield {"type": "text", "content": content[:chars_before_table]}
-                                img_md = f"\n![SHAP Waterfall Plot]({self._waterfall_plot})\n\n"
-                                yield {"type": "text", "content": img_md}
-                                yield {"type": "text", "content": content[chars_before_table:]}
-                                # Skip the normal emit below
-                                content = None
-                            else:
-                                # "| #" started in a previous chunk — just emit image now
-                                img_md = f"\n![SHAP Waterfall Plot]({self._waterfall_plot})\n\n"
-                                yield {"type": "text", "content": img_md}
+                            idx = self._response_text_buf.index(table_marker)
+                            # Walk back to the start of the line containing "| # |"
+                            line_start = self._response_text_buf.rfind("\n", 0, idx)
+                            split_at = line_start + 1 if line_start >= 0 else 0
+                            before = self._response_text_buf[:split_at]
+                            after = self._response_text_buf[split_at:]
+                            if before:
+                                yield {"type": "text", "content": before}
+                            img_md = f"![SHAP Waterfall Plot]({self._waterfall_plot})\n\n"
+                            yield {"type": "text", "content": img_md}
+                            if after:
+                                yield {"type": "text", "content": after}
+                            self._response_text_buf = ""
+                            content = None
+                        elif len(self._response_text_buf) > 4096:
+                            # Safety flush — marker not found, emit buffer as-is
+                            self._waterfall_emitted = True
+                            yield {"type": "text", "content": self._response_text_buf}
+                            self._response_text_buf = ""
+                            content = None
+                        else:
+                            # Keep buffering
+                            content = None
 
                     if content is not None:
                         logger.debug(f"📤 Emitting TEXT from node: {node_name}")
