@@ -31,6 +31,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 from app.config import settings
+# from app.ai.mcp_client import get_mcp_tools
 from app.ai.nodes.classify import classify_node
 from app.ai.nodes.planning import planning_node
 from app.ai.nodes.tool_selection import tool_selection_node
@@ -46,6 +47,7 @@ from app.ai.nodes.credit_scoring import credit_scoring_node
 from app.ai.nodes.explainability import explainability_node
 from app.ai.nodes.fairness_check import fairness_check_node
 from app.ai.nodes.counterfactual_generation import counterfactual_generation_node
+from app.ai.nodes.fetch_merchant_data import fetch_merchant_data_node
 from app.ai.state import LoanAssessmentState, QueryIntent
 from app.ai.edges.routing import (
     route_by_intent,
@@ -229,6 +231,39 @@ Correct tool usage > reasoning > formatting.
         else:
             return str(output)
 
+    # async def register_mcp_tools(self):
+    #     """
+    #     Register MCP tools from configured MCP servers.
+
+    #     This method fetches tools from MCP servers (Supabase, etc.) and
+    #     merges them with existing tools.
+
+    #     MCP tools are added to self.tools and the graph is rebuilt.
+
+    #     Usage:
+    #         agent = LangGraphAgent()
+    #         await agent.register_mcp_tools()
+    #     """
+    #     try:
+    #         logger.info("📦 Fetching MCP tools...")
+    #         mcp_tools = await get_mcp_tools()
+
+    #         if mcp_tools:
+    #             # Merge with existing tools
+    #             self.tools.extend(mcp_tools)
+    #             self.tool_node = ToolNode(self.tools)
+
+    #             # Rebuild graph with combined tools
+    #             self.app = self._build_graph()
+
+    #             logger.info(f"✅ Registered {len(mcp_tools)} MCP tools: {[t.name for t in mcp_tools]}")
+    #         else:
+    #             logger.warning("⚠️ No MCP tools available")
+
+    #     except Exception as e:
+    #         logger.warning(f"⚠️ Failed to register MCP tools: {str(e)}")
+    #         logger.info("Continuing without MCP tools")
+
     def register_tools(self, tools: list):
         """
         Register tools for the agent to use during investigations.
@@ -250,9 +285,9 @@ Correct tool usage > reasoning > formatting.
         Build the SME loan assessment graph with dynamic routing.
 
         Complete flow:
-        classify → document_ingestion → data_completeness → planning
-        → tool_selection → execute_tools → credit_scoring → explainability
-        → fairness_check → counterfactual_generation (conditional)
+        classify → fetch_merchant_data → document_ingestion → data_completeness
+        → planning → tool_selection → execute_tools → credit_scoring
+        → explainability → fairness_check → counterfactual_generation (conditional)
         → analysis → response
 
         Returns:
@@ -291,6 +326,8 @@ Correct tool usage > reasoning > formatting.
             partial(fairness_check_node, llm=self.llm, tools=self.tools))
         workflow.add_node("counterfactual_generation",
             partial(counterfactual_generation_node, llm=self.llm, tools=self.tools))
+        workflow.add_node("fetch_merchant_data",
+            partial(fetch_merchant_data_node, llm=self.llm, tools=self.tools))
 
         # ── Entry point ──────────────────────────────────────────
         workflow.set_entry_point("classify")
@@ -302,7 +339,7 @@ Correct tool usage > reasoning > formatting.
             {
                 "simple":       "simple_response",
                 "single_tool":  "single_tool_execution",
-                "full":         "document_ingestion",   # changed: was "planning"
+                "full":         "fetch_merchant_data",   # NEW: fetch merchant data first
                 "need_data":    "need_more_data"
             }
         )
@@ -313,6 +350,7 @@ Correct tool usage > reasoning > formatting.
         workflow.add_edge("need_more_data",        END)
 
         # ── Full assessment flow ─────────────────────────────────
+        workflow.add_edge("fetch_merchant_data", "document_ingestion")
         workflow.add_edge("document_ingestion", "data_completeness")
 
         workflow.add_conditional_edges(
@@ -592,6 +630,8 @@ Correct tool usage > reasoning > formatting.
 
         # Node headers mapping
         NODE_HEADERS = {
+            "classify": "Classifying query",
+            "fetch_merchant_data": "Fetching merchant profile",
             "document_ingestion": "Processing documents",
             "data_completeness": "Checking data completeness",
             "planning": "Planning analysis",
@@ -601,7 +641,6 @@ Correct tool usage > reasoning > formatting.
             "counterfactual_generation": "Generating improvement paths",
             "analysis": "Synthesizing findings",
             "response": "Generating report",
-            "classify": "Classifying query",
         }
 
         # User-facing nodes (emit "text" instead of "reasoning")
