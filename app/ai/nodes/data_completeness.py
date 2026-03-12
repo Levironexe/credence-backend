@@ -52,12 +52,19 @@ async def data_completeness_node(
     else:
         last_message = ""
 
-    # Check for applicant ID lookup pattern (e.g. "Assess applicant #270000")
+    # Check for applicant ID — either from sidebar selection or from message text
     import re
+    selected_profile_id = state.get("selected_profile_id", "")
     applicant_match = re.search(r'applicant\s*#?\s*(\d+)', last_message, re.IGNORECASE)
 
-    if applicant_match:
+    applicant_id = None
+    if selected_profile_id and selected_profile_id.isdigit():
+        applicant_id = int(selected_profile_id)
+        logger.info(f"   Using selected profile from sidebar: #{applicant_id}")
+    elif applicant_match:
         applicant_id = int(applicant_match.group(1))
+
+    if applicant_id is not None:
         logger.info(f"   Detected applicant lookup: #{applicant_id}")
         from app.tools.model_loader import artifacts
         if artifacts.X_test is not None and applicant_id in artifacts.X_test.index:

@@ -417,12 +417,34 @@ When asked to assess a loan application:
 - Assess ability to repay based on cash flow and financial capacity
 - Suggest improvement paths for declined applicants (counterfactual fairness)"""
 
+        # Inject applicant profile context based on sidebar selection
+        profile_id = chat_request.selectedProfileId
+        if profile_id and profile_id != "custom":
+            system_prompt += f"""
+
+---
+
+### Active Applicant Profile
+The loan officer has selected **Applicant #{profile_id}** from the sidebar panel.
+When the user asks to assess, score, or analyze — use this applicant ID automatically. You do NOT need to ask which applicant.
+Treat any assessment request as referring to Applicant #{profile_id} unless the user explicitly mentions a different ID."""
+        elif not profile_id:
+            system_prompt += """
+
+---
+
+### No Applicant Selected
+The loan officer has NOT selected an applicant profile from the sidebar panel.
+If they ask for a credit assessment or loan analysis without specifying an applicant ID, politely ask them to either:
+1. Select an applicant profile from the right sidebar panel, or
+2. Provide an applicant ID (e.g., "Assess applicant #270000")"""
+
         system_message = {
             "role": "system",
             "content": system_prompt
         }
         messages.insert(0, system_message)
-        logger.info(f"Total messages after system prompt: {len(messages)}")
+        logger.info(f"Total messages after system prompt: {len(messages)}, selectedProfileId={profile_id}")
 
         # Determine the model to use - default to Gemini (matches frontend)
         model = chat_request.selectedChatModel or chat_request.modelId or settings.default_chat_model
@@ -444,7 +466,8 @@ When asked to assess a loan application:
             async for chunk in gateway_client.stream_chat_completion(
                 model=model,
                 messages=messages,
-                temperature=0.7
+                temperature=0.7,
+                selected_profile_id=profile_id or "",
             ):
                 try:
                     chunk_count += 1

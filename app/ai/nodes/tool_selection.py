@@ -36,6 +36,12 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
 
         # Check if query contains specific financial data that requires tool usage
         last_message = messages[-1].content if messages else ""
+        selected_profile_id = state.get("selected_profile_id", "")
+
+        # If a profile is selected, treat it as an applicant lookup request
+        if selected_profile_id:
+            last_message = f"[Applicant #{selected_profile_id} selected] {last_message}"
+
         last_message_lower = last_message.lower()
 
         # Patterns that indicate we should force tool usage for loan assessment
@@ -93,11 +99,20 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
 
 Make your tool selection now."""
 
-        response = await llm_with_tools.ainvoke([
+        # Build message list with profile context if selected
+        invoke_messages = [
             SystemMessage(content=testing_system_prompt),
             SystemMessage(content=tool_selection_prompt),
-            *messages
-        ])
+        ]
+        if selected_profile_id:
+            invoke_messages.append(SystemMessage(
+                content=f"IMPORTANT: The loan officer has selected Applicant #{selected_profile_id} from the sidebar. "
+                        f"You MUST call applicant_lookup with applicant_id={selected_profile_id} first, "
+                        f"then proceed with credit_score_model and other tools."
+            ))
+        invoke_messages.extend(messages)
+
+        response = await llm_with_tools.ainvoke(invoke_messages)
 
         # Check if tools were called
         tool_calls = getattr(response, 'tool_calls', [])

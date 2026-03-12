@@ -22,6 +22,12 @@ async def planning_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
         """
         messages = state["messages"]
         last_message = messages[-1].content if messages else ""
+        selected_profile_id = state.get("selected_profile_id", "")
+
+        # If a profile is selected, add context
+        planning_input = last_message
+        if selected_profile_id:
+            planning_input = f"[Applicant #{selected_profile_id} selected from sidebar — look up and assess this applicant] {last_message}"
 
         planning_prompt = """You are a senior loan officer analyzing SME loan applications. Provide a CONCISE assessment plan (3-5 bullet points max):
 
@@ -34,7 +40,7 @@ Be brief and actionable."""
 
         response = await llm.ainvoke([
             SystemMessage(content=planning_prompt),
-            HumanMessage(content=last_message)
+            HumanMessage(content=planning_input)
         ])
 
         # Extract risk level from response (heuristic-based classification)

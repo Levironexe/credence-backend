@@ -173,16 +173,25 @@ Correct tool usage > reasoning > formatting.
     @staticmethod
     def _sanitize_for_json(obj: Any) -> Any:
         """
-        Recursively replace NaN/Infinity values with None for valid JSON serialization.
-        PostgreSQL JSON columns reject NaN tokens.
+        Recursively convert numpy types and NaN/Infinity to JSON-safe Python types.
         """
         import math
-        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        import numpy as np
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        elif isinstance(obj, (np.integer,)):
+            return int(obj)
+        elif isinstance(obj, (np.floating,)):
+            val = float(obj)
+            return None if (math.isnan(val) or math.isinf(val)) else val
+        elif isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
             return None
         elif isinstance(obj, dict):
             return {k: LangGraphAgent._sanitize_for_json(v) for k, v in obj.items()}
         elif isinstance(obj, (list, tuple)):
             return [LangGraphAgent._sanitize_for_json(v) for v in obj]
+        elif isinstance(obj, np.ndarray):
+            return [LangGraphAgent._sanitize_for_json(v) for v in obj.tolist()]
         return obj
 
     def _format_tool_output(self, output: Any) -> str:
@@ -363,6 +372,7 @@ Correct tool usage > reasoning > formatting.
         model: str,
         messages: List[Dict[str, Any]],
         temperature: float = 0.7,
+        selected_profile_id: str = "",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Stream chat completion using LangGraph agent.
@@ -391,6 +401,10 @@ Correct tool usage > reasoning > formatting.
 
         # Reset tool streaming state for this new request
         self._tool_buffer = {}
+        self._emitted_nodes = set()  # Track which nodes already emitted node_start
+        self._waterfall_plot = None  # SHAP waterfall plot data URI (base64)
+        self._waterfall_emitted = False
+        self._response_text_buf = ""  # Accumulates response text for SHAP table detection
 
         # Debug: log the messages structure
         logger.debug(f"Received messages: {messages}")
@@ -447,8 +461,10 @@ Correct tool usage > reasoning > formatting.
                 logger.warning(f"Skipping empty message: role={role}, content={content}")
                 continue
 
-            # Convert to LangChain message types (skip system messages for graph)
-            if role == "user":
+            # Convert to LangChain message types
+            if role == "system":
+                lc_messages.append(SystemMessage(content=content))
+            elif role == "user":
                 lc_messages.append(HumanMessage(content=content))
             elif role == "assistant":
                 lc_messages.append(AIMessage(content=content))
@@ -507,6 +523,7 @@ Correct tool usage > reasoning > formatting.
             "final_response": "",
             "extracted_fields": {},  # Populated by data_completeness_node
             "documents_processed": documents_processed,
+            "selected_profile_id": selected_profile_id,
         }
 
         try:
@@ -613,11 +630,36 @@ Correct tool usage > reasoning > formatting.
                 node_name = metadata.get("langgraph_node", "")
 
                 if node_name in USER_FACING_NODES:
-                    logger.debug(f"📤 Emitting TEXT from node: {node_name}")
-                    yield {
-                        "type": "text",
-                        "content": content
-                    }
+                    # Inject SHAP waterfall plot: detect the heading before
+                    # the SHAP table and emit the image after it, before the table
+                    if not self._waterfall_emitted and self._waterfall_plot:
+                        prev_buf = self._response_text_buf
+                        self._response_text_buf += content
+                        # Detect "| #" — the very start of the SHAP table header
+                        if "| #" in self._response_text_buf and "| #" not in prev_buf:
+                            self._waterfall_emitted = True
+                            # Split content: emit the image before "| #"
+                            idx = self._response_text_buf.index("| #")
+                            chars_before_table = idx - len(prev_buf)
+                            if chars_before_table > 0:
+                                # Part of current chunk is before the table
+                                yield {"type": "text", "content": content[:chars_before_table]}
+                                img_md = f"\n![SHAP Waterfall Plot]({self._waterfall_plot})\n\n"
+                                yield {"type": "text", "content": img_md}
+                                yield {"type": "text", "content": content[chars_before_table:]}
+                                # Skip the normal emit below
+                                content = None
+                            else:
+                                # "| #" started in a previous chunk — just emit image now
+                                img_md = f"\n![SHAP Waterfall Plot]({self._waterfall_plot})\n\n"
+                                yield {"type": "text", "content": img_md}
+
+                    if content is not None:
+                        logger.debug(f"📤 Emitting TEXT from node: {node_name}")
+                        yield {
+                            "type": "text",
+                            "content": content
+                        }
                 else:
                     logger.debug(f"📤 Emitting REASONING from node: {node_name}")
                     yield {
@@ -656,8 +698,36 @@ Correct tool usage > reasoning > formatting.
             tool_input = tool_info["input"]
             output = data.get("output", {})
 
-            # Format tool output
-            formatted_output = self._format_tool_output(output)
+            # Capture SHAP waterfall plot data URI before formatting
+            if tool_name == "shap_explainer":
+                raw = output
+                if hasattr(raw, 'content'):
+                    try:
+                        import json as _json
+                        raw = _json.loads(raw.content)
+                    except (ValueError, TypeError):
+                        raw = {}
+                if isinstance(raw, dict):
+                    wp = raw.get("waterfall_plot", "")
+                    if wp and isinstance(wp, str) and wp.startswith("data:image"):
+                        self._waterfall_plot = wp
+                        logger.debug("📊 Captured SHAP waterfall plot (base64)")
+
+            # Strip large base64 data from tool output before sending to frontend
+            output_for_sse = output
+            if isinstance(output, dict) and "waterfall_plot" in output:
+                output_for_sse = {k: v for k, v in output.items() if k != "waterfall_plot"}
+            elif hasattr(output, 'content') and isinstance(output.content, str):
+                try:
+                    import json as _json
+                    parsed = _json.loads(output.content)
+                    if isinstance(parsed, dict) and "waterfall_plot" in parsed:
+                        parsed.pop("waterfall_plot")
+                        output_for_sse = type(output)(content=_json.dumps(parsed))
+                except (ValueError, TypeError):
+                    pass
+
+            formatted_output = self._format_tool_output(output_for_sse)
 
             # Emit tool_result event
             logger.debug(f"📤 Emitting TOOL_RESULT: {tool_name}")
@@ -675,8 +745,9 @@ Correct tool usage > reasoning > formatting.
         elif event_type == "on_chain_start":
             node_name = metadata.get("langgraph_node", "")
 
-            # Emit node_start for nodes with headers
-            if node_name in NODE_HEADERS:
+            # Emit node_start for nodes with headers (deduplicate — only first event per node)
+            if node_name in NODE_HEADERS and node_name not in self._emitted_nodes:
+                self._emitted_nodes.add(node_name)
                 logger.debug(f"📤 Emitting NODE_START: {node_name} - {NODE_HEADERS[node_name]}")
                 yield {
                     "type": "node_start",

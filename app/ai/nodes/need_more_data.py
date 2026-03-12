@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any
 from functools import partial
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.ai.state import LoanAssessmentState, QueryIntent
 
@@ -23,6 +23,7 @@ async def need_more_data_node(state: LoanAssessmentState, llm) -> Dict[str, Any]
             Updated state with data request response
         """
         messages = state["messages"]
+        selected_profile_id = state.get("selected_profile_id", "")
 
         # Include analysis steps context (e.g. failed applicant lookup) so LLM can give a relevant response
         analysis_steps = state.get("analysis_steps", [])
@@ -30,7 +31,11 @@ async def need_more_data_node(state: LoanAssessmentState, llm) -> Dict[str, Any]
         if analysis_steps:
             context = f"\n\nContext from prior analysis steps:\n" + "\n".join(f"- {s}" for s in analysis_steps)
 
-        prompt = f"""The user wants a loan assessment but hasn't provided enough data.{context}
+        profile_hint = ""
+        if not selected_profile_id:
+            profile_hint = "\n\nHint: The user can also select an applicant profile from the right sidebar panel to auto-load their data."
+
+        prompt = f"""The user wants a loan assessment but hasn't provided enough data.{context}{profile_hint}
 
 If an applicant lookup failed (invalid ID), tell the user the valid ID range and suggest they try again.
 
@@ -43,15 +48,19 @@ Otherwise, politely request the missing critical information needed for assessme
 
 Keep it friendly and concise (2-3 sentences). Explain that you need these details to provide an accurate credit assessment."""
 
-        response = await llm.ainvoke([
+        collected_content = ""
+        async for chunk in llm.astream([
             SystemMessage(content=prompt),
             *messages
-        ])
+        ]):
+            if hasattr(chunk, 'content') and chunk.content:
+                collected_content += chunk.content
 
+        response = AIMessage(content=collected_content)
         logger.info("Requested additional data from user")
 
         return {
             **state,
             "messages": state["messages"] + [response],
-            "final_response": response.content,
+            "final_response": collected_content,
         }
