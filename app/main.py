@@ -1,5 +1,7 @@
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.routers import auth, chat, documents, vote, api_compat, files, health, applicants
 from app.database import engine, Base
@@ -42,6 +44,11 @@ app.include_router(vote.router)
 app.include_router(files.router)
 app.include_router(applicants.router)  # Applicant profiles
 app.include_router(api_compat.router)  # Compatibility routes
+
+# Serve static files (SHAP plots, etc.)
+static_dir = Path(__file__).parent / "static"
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
 @app.on_event("startup")

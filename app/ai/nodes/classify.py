@@ -56,20 +56,28 @@ async def classify_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
     """
     messages = state["messages"]
     last_message = messages[-1].content if messages else ""
+    selected_profile_id = state.get("selected_profile_id", "")
 
     # Handle multimodal content (list of parts)
     if isinstance(last_message, list):
         last_message = " ".join([part.get("text", "") for part in last_message if isinstance(part, dict) and part.get("type") == "text"])
 
+    # If a profile is selected from the sidebar, add context for the classifier
+    classifier_input = last_message
+    if selected_profile_id:
+        classifier_input = f"[Applicant #{selected_profile_id} is selected in sidebar] {last_message}"
+
     structured_llm = llm.with_structured_output(QueryIntent)
 
     result: QueryIntent = await structured_llm.ainvoke([
         SystemMessage(content=CLASSIFICATION_PROMPT),
-        HumanMessage(content=last_message)
+        HumanMessage(content=classifier_input)
     ])
 
     logger.info(f"🎯 Query classified as: {result.intent} (confidence: {result.confidence:.2f})")
     logger.info(f"   Reasoning: {result.reasoning}")
+    if selected_profile_id:
+        logger.info(f"   Selected profile: #{selected_profile_id}")
 
     if result.intent == "single_tool" and result.tool_needed:
         logger.info(f"   Tool needed: {result.tool_needed}")

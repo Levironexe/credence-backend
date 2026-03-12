@@ -15,6 +15,7 @@ import pandas as pd
 from pydantic import BaseModel, Field
 from app.tools.base import BaseTool
 from app.tools.model_loader import artifacts
+from app.tools.explainability.shap_explainer import FEATURE_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,7 @@ class CounterfactualGenerator(BaseTool):
                 "message": "No actionable path to approval found. Risk factors are in immutable features."
             }
 
-        labels = artifacts.feature_labels or DEFAULT_LABELS
+        labels = {**FEATURE_LABELS, **(artifacts.feature_labels or {}), **DEFAULT_LABELS}
         paths = []
 
         for i, (_, cf_row) in enumerate(cf_df.iterrows()):
@@ -291,7 +292,7 @@ class CounterfactualGenerator(BaseTool):
                 new_prob = float(artifacts.model.predict_proba(candidate.values.reshape(1, -1))[0, 1])
                 new_score = self.prob_to_score(new_prob)
                 if new_score > orig_score:
-                    label = DEFAULT_LABELS.get(feat, feat)
+                    label = {**FEATURE_LABELS, **DEFAULT_LABELS}.get(feat, feat)
                     paths.append({
                         "path_number": len(paths) + 1,
                         "changes": [{

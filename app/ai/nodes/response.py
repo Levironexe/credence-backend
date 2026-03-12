@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any
 from functools import partial
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.ai.state import LoanAssessmentState, QueryIntent
 
@@ -80,22 +80,24 @@ Render as a table:
 
 Write one sentence: "**Credence Score: {credit_score}** — computed by XGBoost ML model trained on Home Credit dataset (128 features)."
 
-Then render the SHAP analysis from the [SHAP Feature Importance] message as a table:
-
 ### Top Factors Driving Score (SHAP Analysis)
+
+Do NOT include any image link here — the waterfall plot chart is injected automatically.
+
+Render the SHAP values as a table:
 
 | # | Factor | SHAP Impact | Value | Direction |
 |---|--------|-------------|-------|-----------|
-| 1 | (from SHAP message) | +/-0.XXXX | value | Positive/Negative |
+| 1 | (from SHAP message) | +/-0.XXXX | value | Increases risk / Decreases risk |
 | ... | ... | ... | ... | ... |
 
-Include up to 5-7 factors from the SHAP message. Use the "label" field for Factor name, "shap_value" for Impact, "value" for Value, and "direction" for Direction.
+Include up to 7-10 factors from the SHAP message. Use the "label" field for Factor name, "shap_value" for Impact, "value" for Value, and "direction" for Direction.
 
 ---
 
 ## 3. Risk Assessment
 
-**Overall Risk: {risk_level.upper()}**
+### Overall Risk: {risk_level.upper()}
 
 ### Risk Factors
 List the top 2-4 negative SHAP factors as risk concerns. Explain each in one sentence using plain language a loan officer would understand (e.g., "Short employment history (1 year) suggests limited job stability").
@@ -141,7 +143,9 @@ Render as a table:
 - No filler text, no preamble, no "In conclusion..."
 - Do NOT add sections not listed above
 - Do NOT add a Regulatory Notes section
+- Your FIRST output character MUST be "#" (the heading). No text, no preamble, no echoing of analysis data before the heading.
 - Start directly with "# Loan Assessment Report"
+- Use USD ($) for all monetary values — e.g., "$130,500" not "₹130,500"
 """
 
         else:
@@ -157,15 +161,39 @@ Render as a table:
 
 Do NOT use rigid templates or empty sections. Just have a natural conversation about their query."""
 
-        final_response = await llm.ainvoke([
-            SystemMessage(content=response_prompt),
-            *messages
-        ])
+        # Filter messages: only pass user query + data messages to avoid the LLM
+        # echoing counterfactual/analysis AIMessages as if they were its own prior response.
+        # Keep: HumanMessage (user query), SystemMessage, and AIMessages that contain
+        # structured data markers like [XGBoost], [SHAP], [Fairness], [Counterfactual]
+        from langchain_core.messages import BaseMessage
+        filtered_messages = []
+        for msg in messages:
+            if isinstance(msg, (SystemMessage, HumanMessage)):
+                filtered_messages.append(msg)
+            elif isinstance(msg, AIMessage):
+                content = msg.content if isinstance(msg.content, str) else ""
+                # Only keep data-bearing AIMessages (injected by pipeline nodes)
+                if any(marker in content for marker in [
+                    "[XGBoost", "[SHAP", "[Fairness", "[Counterfactual",
+                    "ML Model Result", "Feature Importance", "Validation Result",
+                ]):
+                    # Wrap as HumanMessage so the LLM doesn't treat it as its own prior output
+                    filtered_messages.append(HumanMessage(content=content))
 
+        # Stream the response so tokens appear incrementally in the frontend
+        collected_content = ""
+        async for chunk in llm.astream([
+            SystemMessage(content=response_prompt),
+            *filtered_messages
+        ]):
+            if hasattr(chunk, 'content') and chunk.content:
+                collected_content += chunk.content
+
+        final_response = AIMessage(content=collected_content)
         logger.info("Loan assessment complete - final report generated")
 
         return {
             **state,
             "messages": state["messages"] + [final_response],
-            "final_response": final_response.content,
+            "final_response": collected_content,
         }

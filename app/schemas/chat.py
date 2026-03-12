@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     modelId: Optional[str] = None
     selectedChatModel: Optional[str] = None
     selectedVisibilityType: Optional[str] = None
+    selectedProfileId: Optional[str] = None  # Applicant ID from sidebar panel
 
 
 class MessageResponse(BaseModel):

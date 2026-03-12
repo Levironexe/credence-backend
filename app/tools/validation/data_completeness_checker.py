@@ -74,7 +74,8 @@ class DataCompletenessChecker(BaseTool):
                 missing_ranked = {}
                 for f in missing:
                     imp = float(artifacts.mean_abs_shap.get(f, 0))
-                    label = (artifacts.feature_labels or {}).get(f, f)
+                    from app.tools.explainability.shap_explainer import FEATURE_LABELS
+                    label = {**FEATURE_LABELS, **(artifacts.feature_labels or {})}.get(f, f)
                     missing_ranked[f] = {"importance": round(imp, 4), "label": label}
 
                 # Sort by importance descending
