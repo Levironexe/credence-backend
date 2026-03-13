@@ -483,44 +483,57 @@ If they ask for a credit assessment or loan analysis without specifying an appli
 
                         # Collect timeline event for database
                         import time
-                        timeline_event = {
-                            "id": f"{event_type}-{chunk_count}",
-                            "timestamp": int(time.time() * 1000),
-                            "eventType": "section" if event_type in ["node_start", "tool_call", "reasoning"] else "text",
-                        }
 
-                        # Add event-specific data
-                        if event_type == "text":
-                            timeline_event["textContent"] = chunk.get("content", "")
-                        elif event_type == "node_start":
-                            timeline_event["section"] = {
-                                "id": chunk.get("node", f"node-{chunk_count}"),
-                                "type": "node",
-                                "title": chunk.get("message", ""),
-                                "content": "",
-                                "isOpen": True,
-                                "isStreaming": False
-                            }
-                        elif event_type == "tool_call":
-                            timeline_event["section"] = {
-                                "id": f"tool-{chunk.get('tool', 'unknown')}-{chunk_count}",
-                                "type": "tool",
-                                "title": f" {chunk.get('tool', 'Unknown Tool')}",
-                                "content": f"**Input:**\n```json\n{json.dumps(_sanitize_for_json(chunk.get('input', {})), indent=2)}\n```",
-                                "isOpen": False,
-                                "isStreaming": False
-                            }
-                        elif event_type == "reasoning":
-                            timeline_event["section"] = {
-                                "id": f"reasoning-{chunk_count}",
-                                "type": "reasoning",
-                                "title": f" {chunk.get('node', 'Reasoning')}",
-                                "content": chunk.get("content", ""),
-                                "isOpen": False,
-                                "isStreaming": False
+                        if event_type == "tool_result":
+                            # Update existing tool_call section with output
+                            tool_name = chunk.get("tool", "")
+                            for te in reversed(timeline_events):
+                                section = te.get("section", {})
+                                if section.get("type") == "tool" and tool_name in section.get("title", ""):
+                                    section["content"] = (
+                                        f"**Input:**\n```json\n{json.dumps(_sanitize_for_json(chunk.get('input', {})), indent=2)}\n```"
+                                        f"\n\n**Output:**\n```json\n{json.dumps(_sanitize_for_json(chunk.get('output', {})), indent=2)}\n```"
+                                    )
+                                    break
+                        else:
+                            timeline_event = {
+                                "id": f"{event_type}-{chunk_count}",
+                                "timestamp": int(time.time() * 1000),
+                                "eventType": "section" if event_type in ["node_start", "tool_call", "reasoning"] else "text",
                             }
 
-                        timeline_events.append(timeline_event)
+                            # Add event-specific data
+                            if event_type == "text":
+                                timeline_event["textContent"] = chunk.get("content", "")
+                            elif event_type == "node_start":
+                                timeline_event["section"] = {
+                                    "id": chunk.get("node", f"node-{chunk_count}"),
+                                    "type": "node",
+                                    "title": chunk.get("message", ""),
+                                    "content": "",
+                                    "isOpen": True,
+                                    "isStreaming": False
+                                }
+                            elif event_type == "tool_call":
+                                timeline_event["section"] = {
+                                    "id": f"tool-{chunk.get('tool', 'unknown')}-{chunk_count}",
+                                    "type": "tool",
+                                    "title": f" {chunk.get('tool', 'Unknown Tool')}",
+                                    "content": f"**Input:**\n```json\n{json.dumps(_sanitize_for_json(chunk.get('input', {})), indent=2)}\n```",
+                                    "isOpen": False,
+                                    "isStreaming": False
+                                }
+                            elif event_type == "reasoning":
+                                timeline_event["section"] = {
+                                    "id": f"reasoning-{chunk_count}",
+                                    "type": "reasoning",
+                                    "title": f" {chunk.get('node', 'Reasoning')}",
+                                    "content": chunk.get("content", ""),
+                                    "isOpen": False,
+                                    "isStreaming": False
+                                }
+
+                            timeline_events.append(timeline_event)
 
                         # For text events, accumulate content for database
                         if event_type == "text":
@@ -610,6 +623,98 @@ If they ask for a credit assessment or loan analysis without specifying an appli
         await db.refresh(assistant_message)
 
         logger.info(f"Saved assistant message with id={assistant_message.id}, parts={len(parts)}, timeline_events={len(timeline_events)}")
+
+        # Save analysis results to ApplicantResults if a profile was selected
+        if profile_id and profile_id != "custom" and full_content:
+            try:
+                from app.models.applicant import ApplicantResult
+                # Extract tool results from timeline events
+                score_data = {}
+                shap_data = None
+                fairness_data = None
+                counterfactual_data = None
+                for te in timeline_events:
+                    section = te.get("section", {})
+                    if section.get("type") == "tool":
+                        content_str = section.get("content", "")
+                        title = section.get("title", "")
+                        # Parse tool output JSON from the section content
+                        if "credit_score_model" in title and "Output" in content_str:
+                            try:
+                                output_match = content_str.split("**Output:**\n```json\n", 1)
+                                if len(output_match) > 1:
+                                    json_str = output_match[1].split("\n```")[0]
+                                    score_data = json.loads(json_str)
+                            except Exception:
+                                pass
+                        elif "shap_explainer" in title and "Output" in content_str:
+                            try:
+                                output_match = content_str.split("**Output:**\n```json\n", 1)
+                                if len(output_match) > 1:
+                                    json_str = output_match[1].split("\n```")[0]
+                                    shap_data = json.loads(json_str)
+                            except Exception:
+                                pass
+                        elif "fairness_validator" in title and "Output" in content_str:
+                            try:
+                                output_match = content_str.split("**Output:**\n```json\n", 1)
+                                if len(output_match) > 1:
+                                    json_str = output_match[1].split("\n```")[0]
+                                    fairness_data = json.loads(json_str)
+                            except Exception:
+                                pass
+                        elif "counterfactual" in title and "Output" in content_str:
+                            try:
+                                output_match = content_str.split("**Output:**\n```json\n", 1)
+                                if len(output_match) > 1:
+                                    json_str = output_match[1].split("\n```")[0]
+                                    counterfactual_data = json.loads(json_str)
+                            except Exception:
+                                pass
+
+                # Also try extracting from the parts array (tool-result parts have structured data)
+                for p in parts:
+                    if p.get("type") == "tool-result" and p.get("data"):
+                        pdata = p["data"]
+                        name = pdata.get("name", "")
+                        output = pdata.get("output")
+                        if isinstance(output, str):
+                            try:
+                                output = json.loads(output)
+                            except Exception:
+                                pass
+                        if isinstance(output, dict):
+                            if name == "credit_score_model" and not score_data:
+                                score_data = output
+                            elif name == "shap_explainer" and not shap_data:
+                                shap_data = output
+                            elif name == "fairness_validator" and not fairness_data:
+                                fairness_data = output
+                            elif name == "counterfactual_generator" and not counterfactual_data:
+                                counterfactual_data = output
+
+                if score_data.get("credit_score"):
+                    credit_score = score_data["credit_score"]
+                    result_entry = ApplicantResult(
+                        applicant_id=int(profile_id),
+                        credit_score=credit_score,
+                        score_band=score_data.get("score_band"),
+                        default_probability=score_data.get("default_probability"),
+                        risk_level="low" if credit_score >= 670 else "medium" if credit_score >= 580 else "high",
+                        decision=score_data.get("decision"),
+                        shap_explanations=shap_data,
+                        fairness_results=fairness_data,
+                        counterfactuals=counterfactual_data,
+                        full_report=full_content,
+                        chat_id=chat_id,
+                    )
+                    db.add(result_entry)
+                    await db.commit()
+                    logger.info(f"Saved analysis result for applicant #{profile_id}: score={credit_score}")
+                else:
+                    logger.info(f"No credit score found in tool results for applicant #{profile_id}, skipping result save")
+            except Exception as save_err:
+                logger.warning(f"Failed to save analysis result for applicant #{profile_id}: {save_err}")
 
         # Generate title if this is the first message
         result = await db.execute(select(Chat).where(Chat.id == chat_id))
