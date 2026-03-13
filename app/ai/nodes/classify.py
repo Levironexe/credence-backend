@@ -13,7 +13,9 @@ CLASSIFICATION_PROMPT = """You are an intelligent query classifier for SME loan 
 **1. simple_explanation**
 - Educational/general questions about lending, credit, finance
 - No specific loan data or assessment request
-- Examples: "What is a good debt-to-equity ratio?", "How do credit scores work?", "What factors affect loan approval?"
+- **ALSO applies to follow-up questions about a previous assessment** — e.g. asking "why is the default probability so high?", "explain the fairness check results", "what does the score mean?", "can we still approve?", "what are external credit scores?"
+- If the conversation history already contains a Loan Assessment Report (with credit score, SHAP factors, fairness results, etc.), and the user asks about that report, classify as simple_explanation — do NOT re-run the full assessment
+- Examples: "What is a good debt-to-equity ratio?", "How do credit scores work?", "What factors affect loan approval?", "Why is the default probability 44%?", "Explain the fairness failures", "Should we request a co-signer?"
 
 **2. single_tool**
 - Query needs EXACTLY one tool to answer
@@ -25,6 +27,7 @@ CLASSIFICATION_PROMPT = """You are an intelligent query classifier for SME loan 
 - Complex loan assessment with complete/rich financial data
 - Requires multiple tools and comprehensive analysis
 - ALSO applies when the user references an applicant by ID (e.g. "applicant #270000") — the system will look up the full data automatically, so treat this as a complete data request, NOT as "need_more_data"
+- **Does NOT apply to follow-up questions about an existing report** — those are simple_explanation
 - Examples: "Assess this $300M VND loan: 120M monthly revenue, 18% margin, 3 years old", "Analyze this loan application [full details]", "Assess applicant #270000", "Score applicant #285000", "Look up applicant 300000"
 
 **4. need_more_data**
@@ -62,10 +65,20 @@ async def classify_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
     if isinstance(last_message, list):
         last_message = " ".join([part.get("text", "") for part in last_message if isinstance(part, dict) and part.get("type") == "text"])
 
-    # If a profile is selected from the sidebar, add context for the classifier
+    # Check if conversation history contains a previous assessment report
+    has_prior_assessment = False
+    for msg in messages[:-1]:  # All messages except the last (current query)
+        content = msg.content if hasattr(msg, 'content') else ""
+        if isinstance(content, str) and "Loan Assessment Report" in content:
+            has_prior_assessment = True
+            break
+
+    # Build classifier input with context
     classifier_input = last_message
+    if has_prior_assessment:
+        classifier_input = f"[CONTEXT: A Loan Assessment Report was already generated earlier in this conversation. The user may be asking a follow-up question about it.]\n\n{last_message}"
     if selected_profile_id:
-        classifier_input = f"[Applicant #{selected_profile_id} is selected in sidebar] {last_message}"
+        classifier_input = f"[Applicant #{selected_profile_id} is selected in sidebar] {classifier_input}"
 
     structured_llm = llm.with_structured_output(QueryIntent)
 
