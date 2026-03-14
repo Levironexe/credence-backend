@@ -1,50 +1,77 @@
 """
-Applicant API endpoints for the frontend profile panel.
+Applicant API endpoints.
 
 Provides:
-- GET /api/applicants/samples — curated list of 20 diverse test applicants
+- GET /api/applicants/samples — all applicants from DB with cached scores
 - GET /api/applicants/{id} — full profile for a single applicant
+- PUT /api/applicants/{id} — update applicant fields
+- POST /api/applicants/{id}/score — run XGBoost scoring, save result to DB
 """
 
 import logging
 import math
-from typing import Dict, Any, List
-from fastapi import APIRouter, HTTPException
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 import numpy as np
-import pandas as pd
 
-from app.tools.model_loader import artifacts
+from app.database import get_db
+from app.models.applicant import Applicant, ApplicantResult
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/applicants", tags=["applicants"])
 
 # Human-readable labels for key features shown in the sidebar
 DISPLAY_FIELDS = {
-    "AMT_INCOME_TOTAL": {"label": "Annual Income", "format": "currency"},
-    "AMT_CREDIT": {"label": "Loan Amount", "format": "currency"},
-    "AMT_ANNUITY": {"label": "Monthly Payment", "format": "currency"},
-    "AMT_GOODS_PRICE": {"label": "Goods Price", "format": "currency"},
+    "amt_income_total": {"label": "Annual Income", "format": "currency"},
+    "amt_credit": {"label": "Loan Amount", "format": "currency"},
+    "amt_annuity": {"label": "Monthly Payment", "format": "currency"},
+    "amt_goods_price": {"label": "Goods Price", "format": "currency"},
     "age_years": {"label": "Age", "format": "years"},
     "employment_years": {"label": "Employment", "format": "years"},
-    "CNT_CHILDREN": {"label": "Children", "format": "integer"},
-    "CNT_FAM_MEMBERS": {"label": "Family Members", "format": "integer"},
+    "cnt_children": {"label": "Children", "format": "integer"},
+    "cnt_fam_members": {"label": "Family Members", "format": "integer"},
     "credit_income_ratio": {"label": "Loan-to-Income Ratio", "format": "ratio"},
     "annuity_income_ratio": {"label": "Payment-to-Income Ratio", "format": "ratio"},
-    "EXT_SOURCE_1": {"label": "External Score 1", "format": "score"},
-    "EXT_SOURCE_2": {"label": "External Score 2", "format": "score"},
-    "EXT_SOURCE_3": {"label": "External Score 3", "format": "score"},
+    "ext_source_1": {"label": "External Score 1", "format": "score"},
+    "ext_source_2": {"label": "External Score 2", "format": "score"},
+    "ext_source_3": {"label": "External Score 3", "format": "score"},
     "ext_source_mean": {"label": "Avg External Score", "format": "score"},
-    "OWN_CAR_AGE": {"label": "Car Age", "format": "years"},
+    "own_car_age": {"label": "Car Age", "format": "years"},
     "bureau_active_count": {"label": "Active Credit Lines", "format": "integer"},
     "bureau_debt_sum": {"label": "Total Outstanding Debt", "format": "currency"},
     "prev_approval_rate": {"label": "Previous Approval Rate", "format": "percent"},
-    "DAYS_BIRTH": {"label": "Days Since Birth", "format": "hidden"},
-    "DAYS_EMPLOYED": {"label": "Days Employed", "format": "hidden"},
+}
+
+# Map DB column names (lowercase) to model feature names
+DB_TO_FEATURE = {
+    "amt_income_total": "AMT_INCOME_TOTAL",
+    "amt_credit": "AMT_CREDIT",
+    "amt_annuity": "AMT_ANNUITY",
+    "amt_goods_price": "AMT_GOODS_PRICE",
+    "cnt_children": "CNT_CHILDREN",
+    "cnt_fam_members": "CNT_FAM_MEMBERS",
+    "ext_source_1": "EXT_SOURCE_1",
+    "ext_source_2": "EXT_SOURCE_2",
+    "ext_source_3": "EXT_SOURCE_3",
+    "ext_source_mean": "ext_source_mean",
+    "own_car_age": "OWN_CAR_AGE",
+    "bureau_active_count": "bureau_active_count",
+    "bureau_debt_sum": "bureau_debt_sum",
+    "prev_approval_rate": "prev_approval_rate",
+    "credit_income_ratio": "credit_income_ratio",
+    "annuity_income_ratio": "annuity_income_ratio",
+    "age_years": "age_years",
+    "employment_years": "employment_years",
+    "days_birth": "DAYS_BIRTH",
+    "days_employed": "DAYS_EMPLOYED",
 }
 
 
 def _safe_val(v):
-    """Convert numpy/pandas types to JSON-safe Python types."""
+    """Convert numpy/Decimal types to JSON-safe Python types."""
     if v is None:
         return None
     if isinstance(v, (np.integer,)):
@@ -53,9 +80,14 @@ def _safe_val(v):
         if math.isnan(v) or math.isinf(v):
             return None
         return round(float(v), 4)
-    if isinstance(v, (np.bool_,)):
-        return bool(v)
-    return v
+    # Handle Decimal
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return round(f, 4)
+    except (ValueError, TypeError):
+        return v
 
 
 def _format_value(val, fmt: str) -> str:
@@ -77,165 +109,66 @@ def _format_value(val, fmt: str) -> str:
     return str(val)
 
 
-def _build_profile(applicant_id: int, row: pd.Series) -> Dict[str, Any]:
-    """Build a display-friendly profile dict for one applicant."""
-    # Compute derived fields if not present
-    data = row.to_dict()
-
-    # Derive age_years from DAYS_BIRTH if available
-    if "DAYS_BIRTH" in data and data.get("DAYS_BIRTH") is not None:
-        days = data["DAYS_BIRTH"]
-        if not (isinstance(days, float) and math.isnan(days)):
-            data["age_years"] = abs(float(days)) / 365.25
-
-    # Derive employment_years from DAYS_EMPLOYED if available
-    if "DAYS_EMPLOYED" in data and data.get("DAYS_EMPLOYED") is not None:
-        days = data["DAYS_EMPLOYED"]
-        if not (isinstance(days, float) and math.isnan(days)):
-            emp = abs(float(days)) / 365.25
-            # DAYS_EMPLOYED = 365243 is a sentinel for unemployed/retired
-            data["employment_years"] = emp if emp < 100 else 0
-
-    # Build display fields
+def _build_profile_from_db(app: Applicant) -> Dict[str, Any]:
+    """Build a display-friendly profile dict from DB Applicant row."""
     display = []
-    for feat, meta in DISPLAY_FIELDS.items():
-        if meta["format"] == "hidden":
-            continue
-        raw = data.get(feat)
+    for db_col, meta in DISPLAY_FIELDS.items():
+        raw = getattr(app, db_col, None)
         val = _safe_val(raw)
         display.append({
-            "key": feat,
+            "key": db_col,
             "label": meta["label"],
             "value": val,
             "display": _format_value(val, meta["format"]),
             "format": meta["format"],
         })
 
-    # Predict score
-    score = None
-    score_band = None
-    default_prob = None
-    if artifacts.model is not None and artifacts.feature_names is not None:
-        try:
-            features = []
-            medians = artifacts.X_train.median() if artifacts.X_train is not None else None
-            for feat in artifacts.feature_names:
-                v = data.get(feat)
-                if v is None or (isinstance(v, float) and math.isnan(v)):
-                    v = float(medians[feat]) if medians is not None and feat in medians else 0.0
-                features.append(float(v))
-            prob = float(artifacts.model.predict_proba(
-                np.array(features).reshape(1, -1)
-            )[0, 1])
-            default_prob = round(prob, 4)
-            score = int(850 - prob * 550)
-            if score >= 800:
-                score_band = "Exceptional"
-            elif score >= 740:
-                score_band = "Very Good"
-            elif score >= 670:
-                score_band = "Good"
-            elif score >= 580:
-                score_band = "Fair"
-            else:
-                score_band = "Poor"
-        except Exception as e:
-            logger.warning(f"Score prediction failed for #{applicant_id}: {e}")
-
-    # Get actual default label
-    actual_default = None
-    if artifacts.y_test is not None and applicant_id in artifacts.y_test.index:
-        actual_default = int(artifacts.y_test.loc[applicant_id])
-
     return {
-        "id": str(applicant_id),
-        "label": f"Applicant #{applicant_id}",
+        "id": str(app.id),
+        "label": f"Applicant #{app.id}",
         "fields": display,
-        "score": score,
-        "score_band": score_band,
-        "default_probability": default_prob,
-        "actual_default": actual_default,
+        "score": None,
+        "score_band": None,
+        "default_probability": None,
     }
 
 
-# Cache the sample list so we don't recompute on every request
-_cached_samples = None
-
-
-def _find_sample_applicants() -> List[Dict[str, Any]]:
-    """Find 20 diverse applicants across score bands."""
-    global _cached_samples
-    if _cached_samples is not None:
-        return _cached_samples
-
-    if artifacts.X_test is None or artifacts.model is None:
-        return []
-
-    X = artifacts.X_test
-    feature_names = artifacts.feature_names
-
-    # Impute NaN with training medians (same as scoring pipeline)
-    medians = artifacts.X_train.median() if artifacts.X_train is not None else None
-    X_filled = X[feature_names].copy()
-    if medians is not None:
-        X_filled = X_filled.fillna(medians[feature_names])
-    X_filled = X_filled.fillna(0)
-
-    # Predict all scores
-    probs = artifacts.model.predict_proba(X_filled.values.astype(float))[:, 1]
-    scores = (850 - probs * 550).astype(int)
-
-    # Create a DataFrame for selection
-    df = pd.DataFrame({"score": scores, "prob": probs}, index=X.index)
-    if artifacts.y_test is not None:
-        df["actual"] = artifacts.y_test
-
-    # Pick applicants across score bands for diverse testing
-    targets = [
-        # Poor (< 580) — declined, counterfactuals useful
-        ("Poor — Declined", df[df["score"] < 580], 3),
-        # Fair (580-669) — manual review, near threshold, counterfactuals interesting
-        ("Fair — Manual Review", df[(df["score"] >= 580) & (df["score"] < 670)], 5),
-        # Near threshold (660-679) — most interesting for demo
-        ("Near Threshold", df[(df["score"] >= 660) & (df["score"] < 680)], 4),
-        # Good (670-739) — approved with conditions
-        ("Good — Approved", df[(df["score"] >= 670) & (df["score"] < 740)], 3),
-        # Very Good (740-799)
-        ("Very Good", df[(df["score"] >= 740) & (df["score"] < 800)], 3),
-        # Exceptional (800+)
-        ("Exceptional", df[df["score"] >= 800], 2),
-    ]
-
-    samples = []
-    used_ids = set()
-
-    for band_label, band_df, count in targets:
-        if len(band_df) == 0:
-            continue
-        # Pick random sample from this band
-        n = min(count, len(band_df))
-        picked = band_df.sample(n=n, random_state=42)
-        for idx in picked.index:
-            if idx in used_ids:
-                continue
-            used_ids.add(idx)
-            profile = _build_profile(int(idx), X.loc[idx])
-            profile["band_category"] = band_label
-            samples.append(profile)
-
-    # Sort by score descending
-    samples.sort(key=lambda x: x.get("score", 0) or 0, reverse=True)
-
-    _cached_samples = samples
-    logger.info(f"Cached {len(samples)} sample applicants")
-    return samples
+def map_db_to_features(app: Applicant) -> dict:
+    """Map DB Applicant columns to XGBoost model feature names."""
+    features = {}
+    for db_col, model_feat in DB_TO_FEATURE.items():
+        val = getattr(app, db_col, None)
+        if val is not None:
+            features[model_feat] = float(val)
+    return features
 
 
 @router.get("/samples")
-async def get_sample_applicants():
-    """Return curated list of ~20 diverse test applicants with scores."""
+async def get_sample_applicants(db: AsyncSession = Depends(get_db)):
+    """Return all applicants from DB with their latest score if exists."""
     try:
-        samples = _find_sample_applicants()
+        result = await db.execute(select(Applicant).order_by(Applicant.id))
+        applicants = result.scalars().all()
+
+        samples = []
+        for app in applicants:
+            profile = _build_profile_from_db(app)
+
+            # Check for existing score
+            score_result = await db.execute(
+                select(ApplicantResult)
+                .where(ApplicantResult.applicant_id == app.id)
+                .order_by(ApplicantResult.scored_at.desc())
+                .limit(1)
+            )
+            score = score_result.scalar_one_or_none()
+            if score:
+                profile["score"] = int(score.credit_score) if score.credit_score else None
+                profile["score_band"] = score.score_band
+                profile["default_probability"] = float(score.default_probability) if score.default_probability else None
+
+            samples.append(profile)
+
         return {"success": True, "applicants": samples, "count": len(samples)}
     except Exception as e:
         logger.error(f"Failed to get sample applicants: {e}")
@@ -243,19 +176,132 @@ async def get_sample_applicants():
 
 
 @router.get("/{applicant_id}")
-async def get_applicant_profile(applicant_id: int):
+async def get_applicant_profile(applicant_id: int, db: AsyncSession = Depends(get_db)):
     """Return full profile for a single applicant."""
-    if artifacts.X_test is None:
-        raise HTTPException(status_code=503, detail="Test data not loaded")
+    result = await db.execute(select(Applicant).where(Applicant.id == applicant_id))
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Applicant #{applicant_id} not found")
 
-    if applicant_id not in artifacts.X_test.index:
-        valid_min = int(artifacts.X_test.index.min())
-        valid_max = int(artifacts.X_test.index.max())
-        raise HTTPException(
-            status_code=404,
-            detail=f"Applicant #{applicant_id} not found. Valid range: {valid_min}-{valid_max}"
-        )
+    profile = _build_profile_from_db(app)
 
-    row = artifacts.X_test.loc[applicant_id]
-    profile = _build_profile(applicant_id, row)
+    # Get latest score
+    score_result = await db.execute(
+        select(ApplicantResult)
+        .where(ApplicantResult.applicant_id == applicant_id)
+        .order_by(ApplicantResult.scored_at.desc())
+        .limit(1)
+    )
+    score = score_result.scalar_one_or_none()
+    if score:
+        profile["score"] = int(score.credit_score) if score.credit_score else None
+        profile["score_band"] = score.score_band
+        profile["default_probability"] = float(score.default_probability) if score.default_probability else None
+
     return {"success": True, **profile}
+
+
+# Editable fields — only fields shown in sidebar can be updated
+EDITABLE_FIELDS = {
+    "amt_income_total", "amt_credit", "amt_annuity", "amt_goods_price",
+    "age_years", "employment_years", "cnt_children", "cnt_fam_members",
+    "ext_source_1", "ext_source_2", "ext_source_3", "ext_source_mean",
+    "own_car_age", "bureau_active_count", "bureau_debt_sum", "prev_approval_rate",
+}
+
+
+class ApplicantUpdate(BaseModel):
+    fields: Dict[str, Any]
+
+
+@router.put("/{applicant_id}")
+async def update_applicant(applicant_id: int, body: ApplicantUpdate, db: AsyncSession = Depends(get_db)):
+    """Update editable fields on an applicant profile."""
+    result = await db.execute(select(Applicant).where(Applicant.id == applicant_id))
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Applicant #{applicant_id} not found")
+
+    updated = []
+    for key, value in body.fields.items():
+        if key not in EDITABLE_FIELDS:
+            continue
+        # Convert to proper type
+        if value is None or value == "" or value == "N/A":
+            setattr(app, key, None)
+            updated.append(key)
+        else:
+            try:
+                setattr(app, key, float(value))
+                updated.append(key)
+            except (ValueError, TypeError):
+                continue
+
+    # Recompute derived fields
+    if app.amt_income_total and app.amt_income_total > 0:
+        if app.amt_credit is not None:
+            app.credit_income_ratio = app.amt_credit / app.amt_income_total
+        if app.amt_annuity is not None:
+            app.annuity_income_ratio = app.amt_annuity / app.amt_income_total
+    if app.age_years is not None:
+        app.days_birth = -app.age_years * 365.25
+    if app.employment_years is not None:
+        app.days_employed = -app.employment_years * 365.25
+
+    await db.flush()
+
+    profile = _build_profile_from_db(app)
+    logger.info(f"Updated applicant #{applicant_id}: {updated}")
+    return {"success": True, "updated": updated, **profile}
+
+
+@router.post("/{applicant_id}/score")
+async def score_applicant(applicant_id: int, db: AsyncSession = Depends(get_db)):
+    """Score an applicant using XGBoost model and save result to DB."""
+    # Fetch applicant
+    result = await db.execute(select(Applicant).where(Applicant.id == applicant_id))
+    app = result.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail=f"Applicant #{applicant_id} not found")
+
+    # Map to model features
+    features = map_db_to_features(app)
+
+    # Run credit score model
+    from app.tools.credit_scoring.credit_score_model import credit_score_model
+    score_result = await credit_score_model.execute(applicant_data=features)
+
+    if not score_result.get("success"):
+        raise HTTPException(status_code=500, detail=score_result.get("message", "Scoring failed"))
+
+    credit_score = score_result["credit_score"]
+
+    # Determine risk level
+    if credit_score >= 670:
+        risk_level = "low"
+    elif credit_score >= 580:
+        risk_level = "medium"
+    else:
+        risk_level = "high"
+
+    # Save to DB
+    new_result = ApplicantResult(
+        applicant_id=applicant_id,
+        credit_score=credit_score,
+        score_band=score_result["score_band"],
+        default_probability=score_result["default_probability"],
+        risk_level=risk_level,
+        decision=score_result["decision"],
+    )
+    db.add(new_result)
+    await db.flush()
+
+    return {
+        "success": True,
+        "applicant_id": applicant_id,
+        "credit_score": credit_score,
+        "score_band": score_result["score_band"],
+        "default_probability": score_result["default_probability"],
+        "decision": score_result["decision"],
+        "risk_level": risk_level,
+    }

@@ -97,8 +97,9 @@ class LoanAssessmentState(TypedDict):
     counterfactuals: list[dict]  # Improvement scenarios for rejected/marginal applicants
     fairness_check_results: dict  # Causal fairness validation results (bias detection)
 
-    # Applicant context from sidebar
+    # Applicant context
     selected_profile_id: str  # Applicant ID selected in frontend sidebar (empty = none)
+    applicant_id: int  # Resolved DB applicant ID (0 = not a DB applicant)
 
     # Final output
     final_response: str  # Generated credit assessment report (markdown format)

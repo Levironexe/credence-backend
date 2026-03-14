@@ -66,50 +66,55 @@ async def data_completeness_node(
 
     if applicant_id is not None:
         logger.info(f"   Detected applicant lookup: #{applicant_id}")
-        from app.tools.model_loader import artifacts
-        if artifacts.X_test is not None and applicant_id in artifacts.X_test.index:
-            row = artifacts.X_test.loc[applicant_id]
-            extracted_features = row.to_dict()
-            logger.info(f"   Loaded {len(extracted_features)} features from X_test for applicant #{applicant_id}")
 
-            # Store actual default for comparison
-            actual_default_info = ""
-            if artifacts.y_test is not None:
-                actual_default = int(artifacts.y_test.loc[applicant_id])
-                actual_default_info = f", actual_default={actual_default}"
-                logger.info(f"   Actual default label: {actual_default}")
+        # Load from database only
+        try:
+            from app.database import AsyncSessionLocal
+            from app.models.applicant import Applicant
+            from app.routers.applicants import map_db_to_features
+            from sqlalchemy import select as sa_select
 
-            # Short-circuit: all 128 features present, completeness = 100%
-            analysis_steps = state.get("analysis_steps", [])
-            analysis_steps.append(
-                f"Data completeness check: 1.00 "
-                f"({len(extracted_features)} present, 0 missing) — applicant #{applicant_id} loaded from dataset{actual_default_info}"
-            )
+            async with AsyncSessionLocal() as db_session:
+                result = await db_session.execute(
+                    sa_select(Applicant).where(Applicant.id == applicant_id)
+                )
+                db_app = result.scalar_one_or_none()
 
-            return {
-                **state,
-                "data_completeness_score": 1.0,
-                "route_to": "complete",
-                "analysis_steps": analysis_steps,
-                "extracted_fields": extracted_features,
-            }
-        else:
-            # Invalid applicant ID — route to need_more_data with helpful error
-            valid_min = int(artifacts.X_test.index.min()) if artifacts.X_test is not None else "?"
-            valid_max = int(artifacts.X_test.index.max()) if artifacts.X_test is not None else "?"
-            error_msg = f"Applicant #{applicant_id} not found. Valid ID range: {valid_min}-{valid_max}."
-            logger.warning(f"   {error_msg}")
+            if db_app:
+                extracted_features = map_db_to_features(db_app)
+                logger.info(f"   Loaded {len(extracted_features)} features from DB for applicant #{applicant_id}")
 
-            analysis_steps = state.get("analysis_steps", [])
-            analysis_steps.append(f"Applicant lookup failed: {error_msg}")
+                analysis_steps = state.get("analysis_steps", [])
+                analysis_steps.append(
+                    f"Data completeness check: loaded "
+                    f"({len(extracted_features)} features) — applicant #{applicant_id} from database"
+                )
 
-            return {
-                **state,
-                "data_completeness_score": 0.0,
-                "route_to": "incomplete",
-                "analysis_steps": analysis_steps,
-                "extracted_fields": {},
-            }
+                return {
+                    **state,
+                    "applicant_id": applicant_id,
+                    "data_completeness_score": 1.0,
+                    "route_to": "complete",
+                    "analysis_steps": analysis_steps,
+                    "extracted_fields": extracted_features,
+                }
+        except Exception as e:
+            logger.warning(f"   DB lookup failed for applicant #{applicant_id}: {e}")
+
+        # Not found in DB
+        error_msg = f"Applicant #{applicant_id} not found in database."
+        logger.warning(f"   {error_msg}")
+
+        analysis_steps = state.get("analysis_steps", [])
+        analysis_steps.append(f"Applicant lookup failed: {error_msg}")
+
+        return {
+            **state,
+            "data_completeness_score": 0.0,
+            "route_to": "incomplete",
+            "analysis_steps": analysis_steps,
+            "extracted_fields": {},
+        }
 
     # Import the feature extraction from credit_scoring_node
     from app.ai.nodes.credit_scoring import extract_features_from_message

@@ -181,7 +181,7 @@ def route_after_fairness_check(state: LoanAssessmentState) -> Literal["approved"
     """
     credit_score = state.get("credit_score", 0)
     fairness_results = state.get("fairness_check_results", {})
-    bias_detected = fairness_results.get("bias_detected", False)
+    bias_detected = fairness_results.get("bias_detected", False) or not fairness_results.get("fairness_passed", True)
     route_to = state.get("route_to", "rejected")
 
     # If bias detected, always reject regardless of score
