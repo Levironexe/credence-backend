@@ -107,8 +107,8 @@ Make your tool selection now."""
         if selected_profile_id:
             invoke_messages.append(SystemMessage(
                 content=f"IMPORTANT: The loan officer has selected Applicant #{selected_profile_id} from the sidebar. "
-                        f"You MUST call applicant_lookup with applicant_id={selected_profile_id} first, "
-                        f"then proceed with credit_score_model and other tools."
+                        f"The applicant data has already been loaded from the database. "
+                        f"Proceed with financial analysis tools as needed."
             ))
         invoke_messages.extend(messages)
 
