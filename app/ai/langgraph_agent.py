@@ -636,17 +636,17 @@ Correct tool usage > reasoning > formatting.
         run_id = event.get("run_id", "")
         metadata = event.get("metadata", {})
 
-        # Node headers mapping
+        # Node headers mapping (user-facing labels)
         NODE_HEADERS = {
             "classify": "Classifying query",
             "metric_extraction": "Extracting metric overrides",
             "fetch_merchant_data": "Fetching merchant profile",
             "document_ingestion": "Processing documents",
-            "data_completeness": "Checking data completeness",
+            "data_completeness": "Loading applicant data",
             "planning": "Planning analysis",
             "credit_scoring": "Computing credit score",
-            "explainability": "Running SHAP explainability",
-            "fairness_check": "Running fairness validation",
+            "explainability": "Analyzing score factors",
+            "fairness_check": "Checking lending fairness",
             "counterfactual_generation": "Generating improvement paths",
             "analysis": "Synthesizing findings",
             "response": "Generating report",
@@ -787,13 +787,24 @@ Correct tool usage > reasoning > formatting.
 
             formatted_output = self._format_tool_output(output_for_sse)
 
+            # Detect error from tool output
+            is_error = False
+            try:
+                import json as _json
+                parsed_output = _json.loads(formatted_output) if isinstance(formatted_output, str) else formatted_output
+                if isinstance(parsed_output, dict):
+                    is_error = parsed_output.get("success") is False or "error" in parsed_output
+            except (ValueError, TypeError):
+                pass
+
             # Emit tool_result event
-            logger.debug(f"📤 Emitting TOOL_RESULT: {tool_name}")
+            logger.debug(f"📤 Emitting TOOL_RESULT: {tool_name} (error={is_error})")
             yield {
                 "type": "tool_result",
                 "tool": tool_name,
                 "input": tool_input,
-                "output": formatted_output
+                "output": formatted_output,
+                "isError": is_error
             }
 
             # Mark as streamed

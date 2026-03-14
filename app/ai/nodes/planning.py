@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any
 from functools import partial
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.ai.state import LoanAssessmentState, QueryIntent
 
@@ -23,25 +23,63 @@ async def planning_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
         messages = state["messages"]
         last_message = messages[-1].content if messages else ""
         selected_profile_id = state.get("selected_profile_id", "")
+        extracted_fields = state.get("extracted_fields", {})
+        applicant_id = state.get("applicant_id", None)
 
-        # If a profile is selected, add context
-        planning_input = last_message
-        if selected_profile_id:
-            planning_input = f"[Applicant #{selected_profile_id} selected from sidebar — look up and assess this applicant] {last_message}"
+        # Build context about the applicant data already loaded
+        data_context = ""
+        if applicant_id:
+            data_context = f"\nApplicant #{applicant_id} data loaded from database with {len(extracted_fields)} features."
+            # Summarize key fields for the planner
+            key_fields = {}
+            field_labels = {
+                "AMT_INCOME_TOTAL": "Annual Income",
+                "AMT_CREDIT": "Loan Amount",
+                "AMT_ANNUITY": "Monthly Payment",
+                "AMT_GOODS_PRICE": "Goods Price",
+                "DAYS_BIRTH": "Age (days)",
+                "DAYS_EMPLOYED": "Employment (days)",
+                "EXT_SOURCE_1": "External Score 1",
+                "EXT_SOURCE_2": "External Score 2",
+                "EXT_SOURCE_3": "External Score 3",
+            }
+            for feat, label in field_labels.items():
+                if feat in extracted_fields and extracted_fields[feat] is not None:
+                    key_fields[label] = extracted_fields[feat]
+            if key_fields:
+                data_context += "\nKey data points: " + ", ".join(f"{k}={v}" for k, v in key_fields.items())
+        elif selected_profile_id:
+            data_context = f"\nApplicant #{selected_profile_id} selected from sidebar. Data loaded from database."
 
-        planning_prompt = """You are a senior loan officer analyzing SME loan applications. Provide a CONCISE assessment plan (3-5 bullet points max):
+        planning_prompt = f"""You are Credence AI's planning module. You are part of an automated loan assessment pipeline.
 
-1. Analysis type needed (credit scoring, financial analysis, risk assessment)
-2. Available data vs. missing information
-3. Initial risk level (low/medium/high/critical)
-4. Recommended approach (1-2 sentences)
+IMPORTANT: The applicant data has ALREADY been loaded from the database. Do NOT ask for data — it is available.
+{data_context}
 
-Be brief and actionable."""
+The pipeline will automatically run these steps after your plan:
+- Credit scoring (XGBoost → Credence Score 300-850 + default probability)
+- Score factor analysis (SHAP → key drivers)
+- Fairness validation (demographic bias check)
+- Improvement paths (counterfactual scenarios)
 
-        response = await llm.ainvoke([
+Your job: briefly note the assessment approach. Think through:
+1. What do we know about this applicant from the data?
+2. Initial risk impression (low/medium/high/critical)
+3. Any flags or special considerations
+
+Be concise — 3-5 bullet points. Internal notes only, not user-facing."""
+
+        # Use astream so tokens appear in real-time as "Thinking" in the pipeline
+        collected_content = ""
+        async for chunk in llm.astream([
             SystemMessage(content=planning_prompt),
-            HumanMessage(content=planning_input)
-        ])
+            HumanMessage(content=f"Plan the assessment for this applicant request: {last_message}")
+        ]):
+            if hasattr(chunk, 'content') and chunk.content:
+                collected_content += chunk.content
+
+        # Build AIMessage from the collected content
+        response = AIMessage(content=collected_content)
 
         # Extract risk level from response (heuristic-based classification)
         risk_level = "medium"  # default
