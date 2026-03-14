@@ -18,6 +18,7 @@ class QueryIntentType(str, Enum):
     SINGLE_TOOL = "single_tool"
     FULL_ASSESSMENT = "full_assessment"
     NEED_MORE_DATA = "need_more_data"
+    RE_ASSESSMENT = "re_assessment"
 
 
 # ============ QUERY INTENT MODEL ============
@@ -32,7 +33,7 @@ class QueryIntent(BaseModel):
     - full_assessment: Complex loan assessments requiring multiple tools
     - need_more_data: Assessment requests lacking required financial data
     """
-    intent: Literal["simple_explanation", "single_tool", "full_assessment", "need_more_data"] = Field(
+    intent: Literal["simple_explanation", "single_tool", "full_assessment", "need_more_data", "re_assessment"] = Field(
         description="The type of query intent"
     )
     tool_needed: Optional[str] = Field(
@@ -69,6 +70,7 @@ class LoanAssessmentState(TypedDict):
     analysis_steps: list[str]  # Chronological sequence of analysis actions taken
     documents_processed: list[dict]  # Uploaded financial documents (PDFs, bank statements, etc.)
     extracted_fields: dict  # Financial fields extracted by data_completeness_checker (with VND conversion)
+    user_metric_overrides: dict  # Metric values explicitly stated by user (override dataset values)
 
     # Financial metrics
     financial_ratios: dict  # Key ratios: debt-to-equity, current ratio, ROE, profit margin, etc.

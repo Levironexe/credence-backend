@@ -12,7 +12,7 @@ from app.ai.state import LoanAssessmentState, QueryIntentType
 logger = logging.getLogger(__name__)
 
 
-def route_by_intent(state: LoanAssessmentState) -> Literal["simple", "single_tool", "full", "need_data"]:
+def route_by_intent(state: LoanAssessmentState) -> Literal["simple", "single_tool", "full", "need_data", "re_assess"]:
     """
     Dynamic routing based on classified query intent.
 
@@ -21,6 +21,7 @@ def route_by_intent(state: LoanAssessmentState) -> Literal["simple", "single_too
     - single_tool: Execute one specific tool
     - full: Full assessment workflow (planning -> tool_selection -> etc.)
     - need_data: Prompt user for missing data
+    - re_assess: Re-assessment with user-stated metric overrides
 
     Args:
         state: Current assessment state
@@ -34,7 +35,8 @@ def route_by_intent(state: LoanAssessmentState) -> Literal["simple", "single_too
         QueryIntentType.SIMPLE_EXPLANATION.value: "simple",
         QueryIntentType.SINGLE_TOOL.value: "single_tool",
         QueryIntentType.FULL_ASSESSMENT.value: "full",
-        QueryIntentType.NEED_MORE_DATA.value: "need_data"
+        QueryIntentType.NEED_MORE_DATA.value: "need_data",
+        QueryIntentType.RE_ASSESSMENT.value: "re_assess",
     }
 
     route = routing_map.get(intent, "full")
@@ -167,6 +169,33 @@ def route_after_data_completeness(state: LoanAssessmentState) -> Literal["comple
     else:
         logger.info(f"Routing to planning (completeness: {completeness_score:.2f})")
         return "complete"
+
+
+def route_after_data_completeness_v2(state: LoanAssessmentState) -> Literal["planning", "credit_scoring", "need_more_data"]:
+    """
+    Route after data completeness check (v2 — intent-aware).
+
+    For re_assessment intent, skips planning/tools and goes straight to credit_scoring.
+
+    Args:
+        state: Current loan assessment state
+
+    Returns:
+        "need_more_data" if data insufficient, "credit_scoring" for re_assessment, "planning" otherwise
+    """
+    route_to = state.get("route_to", "complete")
+    completeness_score = state.get("data_completeness_score", 1.0)
+
+    if route_to == "incomplete" or completeness_score < 0.4:
+        logger.info(f"Routing to need_more_data (completeness: {completeness_score:.2f})")
+        return "need_more_data"
+
+    if state.get("intent_type") == QueryIntentType.RE_ASSESSMENT.value:
+        logger.info(f"Re-assessment intent — routing directly to credit_scoring (skipping planning/tools)")
+        return "credit_scoring"
+
+    logger.info(f"Routing to planning (completeness: {completeness_score:.2f})")
+    return "planning"
 
 
 def route_after_fairness_check(state: LoanAssessmentState) -> Literal["approved", "rejected"]:

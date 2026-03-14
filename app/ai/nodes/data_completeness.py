@@ -84,6 +84,14 @@ async def data_completeness_node(
                 extracted_features = map_db_to_features(db_app)
                 logger.info(f"   Loaded {len(extracted_features)} features from DB for applicant #{applicant_id}")
 
+                # Apply user metric overrides on top of DB values
+                user_overrides = state.get("user_metric_overrides", {})
+                if user_overrides:
+                    logger.info(f"   Applying {len(user_overrides)} user override(s):")
+                    for k, v in user_overrides.items():
+                        logger.info(f"      {k}: {extracted_features.get(k, '<new>')} → {v}")
+                        extracted_features[k] = v
+
                 analysis_steps = state.get("analysis_steps", [])
                 analysis_steps.append(
                     f"Data completeness check: loaded "

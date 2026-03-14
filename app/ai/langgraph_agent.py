@@ -48,6 +48,7 @@ from app.ai.nodes.explainability import explainability_node
 from app.ai.nodes.fairness_check import fairness_check_node
 from app.ai.nodes.counterfactual_generation import counterfactual_generation_node
 from app.ai.nodes.fetch_merchant_data import fetch_merchant_data_node
+from app.ai.nodes.metric_extraction import metric_extraction_node
 from app.ai.state import LoanAssessmentState, QueryIntent
 from app.ai.edges.routing import (
     route_by_intent,
@@ -55,6 +56,7 @@ from app.ai.edges.routing import (
     continue_investigation,
     calculate_query_complexity,
     route_after_data_completeness,
+    route_after_data_completeness_v2,
     route_after_fairness_check
 )
 
@@ -328,6 +330,8 @@ Correct tool usage > reasoning > formatting.
             partial(counterfactual_generation_node, llm=self.llm, tools=self.tools))
         workflow.add_node("fetch_merchant_data",
             partial(fetch_merchant_data_node, llm=self.llm, tools=self.tools))
+        workflow.add_node("metric_extraction",
+            partial(metric_extraction_node, llm=self.llm))
 
         # ── Entry point ──────────────────────────────────────────
         workflow.set_entry_point("classify")
@@ -339,8 +343,9 @@ Correct tool usage > reasoning > formatting.
             {
                 "simple":       "simple_response",
                 "single_tool":  "single_tool_execution",
-                "full":         "fetch_merchant_data",   # NEW: fetch merchant data first
-                "need_data":    "need_more_data"
+                "full":         "fetch_merchant_data",   # fetch merchant data first
+                "need_data":    "need_more_data",
+                "re_assess":    "metric_extraction",     # extract user overrides first
             }
         )
 
@@ -352,13 +357,15 @@ Correct tool usage > reasoning > formatting.
         # ── Full assessment flow ─────────────────────────────────
         workflow.add_edge("fetch_merchant_data", "document_ingestion")
         workflow.add_edge("document_ingestion", "data_completeness")
+        workflow.add_edge("metric_extraction", "data_completeness")
 
         workflow.add_conditional_edges(
             "data_completeness",
-            route_after_data_completeness,
+            route_after_data_completeness_v2,
             {
-                "complete":   "planning",
-                "incomplete": "need_more_data"
+                "planning":       "planning",
+                "credit_scoring": "credit_scoring",
+                "need_more_data": "need_more_data",
             }
         )
 
@@ -560,6 +567,7 @@ Correct tool usage > reasoning > formatting.
             "tool_results": [],
             "final_response": "",
             "extracted_fields": {},  # Populated by data_completeness_node
+            "user_metric_overrides": {},  # Populated by metric_extraction_node for re_assessment
             "documents_processed": documents_processed,
             "selected_profile_id": selected_profile_id,
         }
@@ -631,6 +639,7 @@ Correct tool usage > reasoning > formatting.
         # Node headers mapping
         NODE_HEADERS = {
             "classify": "Classifying query",
+            "metric_extraction": "Extracting metric overrides",
             "fetch_merchant_data": "Fetching merchant profile",
             "document_ingestion": "Processing documents",
             "data_completeness": "Checking data completeness",

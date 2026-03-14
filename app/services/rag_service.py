@@ -86,6 +86,8 @@ class RAGService:
         Returns:
             List of Document objects with content and metadata
         """
+        
+        
         if not self._initialized:
             await self.initialize()
 
