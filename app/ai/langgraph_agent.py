@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 from app.config import settings
@@ -134,30 +134,27 @@ Correct tool usage > reasoning > formatting.
 
     def __init__(self):
         """Initialize the agent with LLM and build the loan assessment graph."""
-        # Get model name from settings and map to Anthropic API format
-        model_name = getattr(settings, 'agent_model', 'claude-sonnet-4-6')
+        # Get model name from settings (OpenRouter format: provider/model)
+        model_name = getattr(settings, 'agent_model', 'anthropic/claude-haiku-4.5')
 
-        # Map friendly names to actual Anthropic API model names
+        # Map friendly names to OpenRouter model IDs
         model_mapping = {
-            # Haiku models (4.5 from Oct 2025)
-            "claude-haiku-4.5": "claude-haiku-4-5-20251001",
-            "claude-haiku-4-5": "claude-haiku-4-5-20251001",
-            "claude-haiku": "claude-haiku-4-5-20251001",
-            # Sonnet models (3.5 from Oct 2024)
-            "claude-sonnet-4.5": "claude-3-5-sonnet-20241022",
-            "claude-sonnet-4-5": "claude-3-5-sonnet-20241022",
-            "claude-sonnet-3.5": "claude-3-5-sonnet-20241022",
-            "claude-sonnet": "claude-3-5-sonnet-20241022",
-            # Fallback to old Claude 3 Haiku if needed
-            "claude-3-haiku": "claude-3-haiku-20240307",
-            "claude-sonnet-4-6": "claude-sonnet-4-6"
+            "claude-haiku-4.5": "anthropic/claude-haiku-4.5",
+            "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+            "claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
+            "claude-haiku": "anthropic/claude-haiku-4.5",
+            "claude-sonnet-4.5": "anthropic/claude-sonnet-4",
+            "claude-sonnet-4-5": "anthropic/claude-sonnet-4",
+            "claude-sonnet-4-6": "anthropic/claude-sonnet-4",
+            "claude-sonnet": "anthropic/claude-sonnet-4",
         }
-        anthropic_model = model_mapping.get(model_name, model_name)
+        openrouter_model = model_mapping.get(model_name, model_name)
 
-        # Initialize LLM for reasoning (using Claude for multi-step reasoning)
-        self.llm = ChatAnthropic(
-            model=anthropic_model,
-            api_key=settings.anthropic_api_key,
+        # Initialize LLM via OpenRouter (Claude for multi-step reasoning)
+        self.llm = ChatOpenAI(
+            model=openrouter_model,
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
             temperature=0.7,
             max_tokens=4096,
         )
@@ -172,7 +169,7 @@ Correct tool usage > reasoning > formatting.
         # Build the loan assessment graph
         self.app = self._build_graph()
 
-        logger.info(f"LangGraph agent initialized with model: {anthropic_model}")
+        logger.info(f"LangGraph agent initialized with model: {openrouter_model}")
 
     @staticmethod
     def _sanitize_for_json(obj: Any) -> Any:
@@ -442,7 +439,20 @@ Correct tool usage > reasoning > formatting.
             ):
                 print(chunk)
         """
-        logger.info(f"Starting LangGraph agent execution with {len(messages)} messages")
+        logger.info(f"Starting LangGraph agent execution with model={model}, {len(messages)} messages")
+
+        # Swap the LLM model for this request if different from default
+        if model and model != self.llm.model_name:
+            # Map friendly names to OpenRouter IDs
+            model_mapping = {
+                "claude-haiku-4.5": "anthropic/claude-haiku-4.5",
+                "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+                "claude-sonnet-4": "anthropic/claude-sonnet-4",
+                "claude-sonnet": "anthropic/claude-sonnet-4",
+            }
+            resolved = model_mapping.get(model, model)
+            self.llm.model_name = resolved
+            logger.info(f"Swapped agent LLM to: {resolved}")
 
         # Reset tool streaming state for this new request
         self._tool_buffer = {}
@@ -781,8 +791,12 @@ Correct tool usage > reasoning > formatting.
                     parsed = _json.loads(output.content)
                     if isinstance(parsed, dict) and "waterfall_plot" in parsed:
                         parsed.pop("waterfall_plot")
-                        output_for_sse = type(output)(content=_json.dumps(parsed))
-                except (ValueError, TypeError):
+                        # Preserve tool_call_id when reconstructing ToolMessage
+                        extra_kwargs = {}
+                        if hasattr(output, 'tool_call_id'):
+                            extra_kwargs['tool_call_id'] = output.tool_call_id
+                        output_for_sse = type(output)(content=_json.dumps(parsed), **extra_kwargs)
+                except (ValueError, TypeError, KeyError):
                     pass
 
             formatted_output = self._format_tool_output(output_for_sse)

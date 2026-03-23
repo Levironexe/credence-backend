@@ -255,6 +255,29 @@ async def update_applicant(applicant_id: int, body: ApplicantUpdate, db: AsyncSe
     return {"success": True, "updated": updated, **profile}
 
 
+@router.get("/{applicant_id}/last-assessment")
+async def get_last_assessment(applicant_id: int, db: AsyncSession = Depends(get_db)):
+    """Return SHAP explanations + counterfactuals from most recent ApplicantResult."""
+    result = await db.execute(
+        select(ApplicantResult)
+        .where(ApplicantResult.applicant_id == applicant_id)
+        .order_by(ApplicantResult.scored_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return {"success": False, "detail": "No assessment found"}
+    return {
+        "success": True,
+        "credit_score": row.credit_score,
+        "default_probability": float(row.default_probability) if row.default_probability else None,
+        "risk_level": row.risk_level,
+        "score_band": row.score_band,
+        "shap_explanations": row.shap_explanations,
+        "counterfactuals": row.counterfactuals,
+    }
+
+
 @router.post("/{applicant_id}/score")
 async def score_applicant(applicant_id: int, db: AsyncSession = Depends(get_db)):
     """Score an applicant using XGBoost model and save result to DB."""
