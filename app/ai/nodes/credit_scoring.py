@@ -187,6 +187,71 @@ async def credit_scoring_node(
         logger.info(f"   Default probability: {default_probability:.2%}")
         logger.info(f"   Risk level: {risk_level}")
 
+        # Build applicant profile summary for conversation context
+        applicant_profile = result.get("applicant_profile", {})
+        profile_lines = ""
+        if applicant_profile:
+            field_labels = {
+                "AMT_INCOME_TOTAL": "Annual Income",
+                "AMT_CREDIT": "Loan Amount",
+                "AMT_ANNUITY": "Monthly Payment",
+                "AMT_GOODS_PRICE": "Goods/Purchase Price",
+                "DAYS_BIRTH": "Age (days, negative)",
+                "DAYS_EMPLOYED": "Employment Duration (days, negative)",
+                "CNT_CHILDREN": "Number of Children",
+                "CNT_FAM_MEMBERS": "Family Members",
+                "NAME_INCOME_TYPE": "Income Type",
+                "NAME_EDUCATION_TYPE": "Education",
+                "NAME_FAMILY_STATUS": "Family Status",
+                "NAME_HOUSING_TYPE": "Housing Type",
+                "OCCUPATION_TYPE": "Occupation",
+                "ORGANIZATION_TYPE": "Organization Type",
+                "CODE_GENDER": "Gender",
+                "NAME_CONTRACT_TYPE": "Contract Type",
+                "age_years": "Age (years)",
+                "employment_years": "Employment (years)",
+                "EXT_SOURCE_1": "External Score 1",
+                "EXT_SOURCE_2": "External Score 2",
+                "EXT_SOURCE_3": "External Score 3",
+                "ext_source_mean": "Avg External Score",
+                "bureau_active_count": "Active Credit Lines",
+                "bureau_debt_sum": "Outstanding Debt",
+                "bureau_credit_sum": "Total Credit Limit",
+                "bureau_loan_count": "Total Bureau Loans",
+                "prev_app_count": "Previous Applications",
+                "prev_approved_count": "Previous Approvals",
+                "prev_refused_count": "Previous Refusals",
+                "prev_amt_credit_mean": "Avg Previous Loan Amount",
+                "prev_amt_annuity_mean": "Avg Previous Payment",
+                "prev_approval_rate": "Approval Rate",
+                "credit_income_ratio": "Loan-to-Income Ratio",
+                "annuity_income_ratio": "Payment-to-Income Ratio",
+                "FLAG_OWN_CAR": "Owns Car",
+                "FLAG_OWN_REALTY": "Owns Property",
+                "OWN_CAR_AGE": "Car Age",
+                "DAYS_REGISTRATION": "Days Since Registration",
+                "DAYS_ID_PUBLISH": "Days Since ID Published",
+                "DAYS_LAST_PHONE_CHANGE": "Days Since Phone Change",
+                "FLAG_WORK_PHONE": "Has Work Phone",
+                "REGION_POPULATION_RELATIVE": "Region Population",
+                "DEF_30_CNT_SOCIAL_CIRCLE": "Social Circle Defaults",
+                "AMT_REQ_CREDIT_BUREAU_QRT": "Bureau Inquiries (Quarter)",
+            }
+            profile_lines = "\n\n**[Applicant Profile Data]**\n"
+            for key, value in applicant_profile.items():
+                label = field_labels.get(key, key)
+                # Convert DAYS_BIRTH/DAYS_EMPLOYED to human-readable
+                if key == "DAYS_BIRTH" and isinstance(value, (int, float)):
+                    age_years = round(abs(value) / 365.25, 1)
+                    profile_lines += f"- {label}: {value} (~{age_years} years old)\n"
+                elif key == "DAYS_EMPLOYED" and isinstance(value, (int, float)):
+                    emp_years = round(abs(value) / 365.25, 1)
+                    profile_lines += f"- {label}: {value} (~{emp_years} years employed)\n"
+                elif key in ("AMT_INCOME_TOTAL", "AMT_CREDIT", "AMT_ANNUITY", "AMT_GOODS_PRICE") and isinstance(value, (int, float)):
+                    profile_lines += f"- {label}: ${value:,.0f}\n"
+                else:
+                    profile_lines += f"- {label}: {value}\n"
+
         # Inject credit score as a message so downstream LLM nodes can see it
         from langchain_core.messages import AIMessage
         score_message = AIMessage(content=(
@@ -196,7 +261,8 @@ async def credit_scoring_node(
             f"- Risk Level: **{risk_level.upper()}**\n"
             f"- Lending Decision: **{decision}**\n"
             f"- Model: XGBoost (Home Credit, 128 features)\n"
-            f"- Features Provided: {result.get('features_provided', 0)}/{result.get('features_total', 128)}\n\n"
+            f"- Features Provided: {result.get('features_provided', 0)}/{result.get('features_total', 128)}\n"
+            f"{profile_lines}\n"
             f"This is the official credit score. Use this score in your analysis and report."
         ))
 
