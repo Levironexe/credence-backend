@@ -91,6 +91,82 @@ class CreditScoreModel(BaseTool):
                 "message": f"Failed to calculate credit score: {str(e)}"
             }
 
+    @staticmethod
+    def _compute_derived_features(data: Dict[str, Any], row: pd.Series) -> None:
+        """Compute derived features using the exact formulas from training.
+
+        Must match train_and_evaluate.ipynb exactly — same +1 offsets,
+        same NaN propagation behaviour. If an input is missing the derived
+        feature stays NaN and will be imputed with the training median later.
+        """
+        def _get(key):
+            """Get a numeric value from data, returning None if missing/NaN."""
+            v = data.get(key)
+            if v is None:
+                return None
+            try:
+                f = float(v)
+                return None if np.isnan(f) else f
+            except (ValueError, TypeError):
+                return None
+
+        income = _get("AMT_INCOME_TOTAL")
+        credit = _get("AMT_CREDIT")
+        annuity = _get("AMT_ANNUITY")
+        goods = _get("AMT_GOODS_PRICE")
+        fam = _get("CNT_FAM_MEMBERS")
+        days_birth = _get("DAYS_BIRTH")
+        days_emp = _get("DAYS_EMPLOYED")
+        ext1 = _get("EXT_SOURCE_1")
+        ext2 = _get("EXT_SOURCE_2")
+        ext3 = _get("EXT_SOURCE_3")
+        bureau_active = _get("bureau_active_count")
+        bureau_loans = _get("bureau_loan_count")
+        bureau_debt = _get("bureau_debt_sum")
+        bureau_credit = _get("bureau_credit_sum")
+        prev_approved = _get("prev_approved_count")
+        prev_apps = _get("prev_app_count")
+
+        # Ratios — training used denominator + 1 to avoid division by zero
+        if credit is not None and income is not None:
+            row["credit_income_ratio"] = credit / (income + 1)
+        if annuity is not None and income is not None:
+            row["annuity_income_ratio"] = annuity / (income + 1)
+        if credit is not None and goods is not None:
+            row["credit_goods_ratio"] = credit / (goods + 1)
+        if annuity is not None and credit is not None:
+            row["annuity_credit_ratio"] = annuity / (credit + 1)
+        if income is not None and fam is not None:
+            row["income_per_person"] = income / (fam + 1)
+
+        # Time conversions
+        if days_birth is not None:
+            row["age_years"] = (-days_birth) / 365.25
+        if days_emp is not None:
+            row["employment_years"] = (-days_emp) / 365.25
+        if days_emp is not None and days_birth is not None:
+            row["employed_to_birth_ratio"] = days_emp / (days_birth + 1)
+
+        # Bureau ratios
+        if bureau_active is not None and bureau_loans is not None:
+            row["bureau_active_ratio"] = bureau_active / (bureau_loans + 1)
+        if bureau_debt is not None and bureau_credit is not None:
+            row["bureau_debt_credit_ratio"] = bureau_debt / (bureau_credit + 1)
+
+        # Previous application ratio
+        if prev_approved is not None and prev_apps is not None:
+            row["prev_approval_rate"] = prev_approved / (prev_apps + 1)
+
+        # External source combinations — mean/std use whatever sources are
+        # available (matching pandas .mean(axis=1) skipna behaviour in training)
+        exts = [v for v in [ext1, ext2, ext3] if v is not None]
+        if exts:
+            row["ext_source_mean"] = np.mean(exts)
+            row["ext_source_std"] = np.std(exts, ddof=1) if len(exts) > 1 else 0.0
+        # Product requires all three (NaN * x = NaN in training)
+        if ext1 is not None and ext2 is not None and ext3 is not None:
+            row["ext_source_product"] = ext1 * ext2 * ext3
+
     async def _compute_ml_score(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Score using the trained XGBoost model."""
         feature_names = artifacts.feature_names
@@ -100,6 +176,9 @@ class CreditScoreModel(BaseTool):
         for feat in feature_names:
             if feat in data:
                 row[feat] = data[feat]
+
+        # Compute derived features from raw inputs (must happen before imputation)
+        self._compute_derived_features(data, row)
 
         # Encode categoricals using saved label encoders
         if artifacts.label_encoders:
@@ -124,6 +203,10 @@ class CreditScoreModel(BaseTool):
         prob = float(artifacts.model.predict_proba(X)[0, 1])
         credit_score = self.prob_to_score(prob)
 
+
+        # Include all provided fields in the response
+        applicant_profile = {k: v for k, v in data.items() if v is not None}
+
         return {
             "success": True,
             "default_probability": round(prob, 4),
@@ -134,6 +217,7 @@ class CreditScoreModel(BaseTool):
             "model_type": "XGBoost (Home Credit, stable)",
             "features_provided": sum(1 for f in feature_names if f in data),
             "features_total": len(feature_names),
+            "applicant_profile": applicant_profile,
             "message": f"Credit score: {credit_score} ({self.score_band(credit_score)})"
         }
 
