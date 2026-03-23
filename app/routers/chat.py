@@ -450,8 +450,8 @@ If they ask for a credit assessment or loan analysis without specifying an appli
         model = chat_request.selectedChatModel or chat_request.modelId or settings.default_chat_model
         logger.info(f"Using model: {model}")
 
-        # Stream from Claude
-        logger.info(f"Calling Claude with model={model}, stream=True")
+        # Stream from LangGraph agent via OpenRouter
+        logger.info(f"Streaming with model={model}")
 
         # Generate message ID upfront
         import uuid

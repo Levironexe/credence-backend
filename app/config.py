@@ -26,11 +26,8 @@ class Settings(BaseSettings):
     # AI Gateway (for LLM API calls)
     ai_gateway_api_key: str = ""
 
-    # LLM API Keys (provider-specific)
-    anthropic_api_key: str = ""
-    openai_api_key: str = ""
-    google_api_key: str = ""
-    xai_api_key: str = ""
+    # OpenRouter API Key (all LLM calls route through OpenRouter)
+    openrouter_api_key: str = ""
 
     # Rate Limiting
     guest_message_limit: int = 20
@@ -42,13 +39,13 @@ class Settings(BaseSettings):
 
     # Model Configuration
     # Using LangGraph agent with tools for loan assessment
-    default_chat_model: str = "agent/loan-analyst"
-    default_title_model: str = "claude/claude-haiku-4-5-20251001"
-    default_artifact_model: str = "claude/claude-haiku-4-5-20251001"
+    default_chat_model: str = "anthropic/claude-haiku-4.5"
+    default_title_model: str = "anthropic/claude-haiku-4.5"
+    default_artifact_model: str = "anthropic/claude-haiku-4.5"
 
     # Agent Settings
     agent_enabled: bool = True  # Enable/disable LangGraph agent
-    agent_model: str = "claude-haiku-4-5-20251001"  # Model for agent reasoning (Haiku 4.5 is fast and cost-effective)
+    agent_model: str = "anthropic/claude-haiku-4.5"  # OpenRouter model ID for agent reasoning
     max_tool_steps: int = 5  # Maximum number of tool execution iterations
     thinking_budget_tokens: int = 10000  # Token budget for extended thinking
 

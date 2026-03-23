@@ -10,13 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 class ExtractedMetrics(BaseModel):
-    metrics: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Metric values explicitly stated by the user, keyed by Home Credit column name or descriptive snake_case"
+    metrics: Dict[str, float] = Field(
+        description="Metric values explicitly stated by the user, keyed by Home Credit column name or descriptive snake_case. Empty dict if none found."
     )
     has_overrides: bool = Field(
-        default=False,
-        description="True if any metric values were explicitly stated by the user"
+        description="True if any metric values were explicitly stated by the user, false otherwise"
     )
 
 
@@ -72,7 +70,7 @@ async def metric_extraction_node(state: LoanAssessmentState, llm) -> Dict[str, A
         ])
 
     try:
-        structured_llm = llm.with_structured_output(ExtractedMetrics)
+        structured_llm = llm.with_structured_output(ExtractedMetrics, method="function_calling")
         result: ExtractedMetrics = await structured_llm.ainvoke([
             SystemMessage(content=METRIC_EXTRACTION_PROMPT),
             HumanMessage(content=last_message)

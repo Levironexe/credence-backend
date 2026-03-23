@@ -93,7 +93,7 @@ async def classify_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
     if selected_profile_id:
         classifier_input = f"[Applicant #{selected_profile_id} is selected in sidebar] {classifier_input}"
 
-    structured_llm = llm.with_structured_output(QueryIntent)
+    structured_llm = llm.with_structured_output(QueryIntent, method="function_calling")
 
     result: QueryIntent = await structured_llm.ainvoke([
         SystemMessage(content=CLASSIFICATION_PROMPT),

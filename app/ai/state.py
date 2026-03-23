@@ -41,7 +41,6 @@ class QueryIntent(BaseModel):
         description="For single_tool intent: name of the specific tool required"
     )
     confidence: float = Field(
-        ge=0.0, le=1.0,
         description="Confidence score for the classification (0.0-1.0)"
     )
     reasoning: str = Field(
