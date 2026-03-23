@@ -1,13 +1,13 @@
 """
 Fairness Validator Tool
 
-Per-applicant fairness analysis using neighborhood comparison.
+Per-applicant fairness analysis using Fairlearn + neighborhood comparison.
 Finds similar applicants in X_test, compares model outcomes across
 demographic groups (gender, age, marital status) using:
 
-- Disparate Impact Ratio (four-fifths rule, threshold >= 0.80)
-- Equalized Odds (TPR/FPR parity across groups)
-- Chi-squared statistical significance test
+- Disparate Impact Ratio via Fairlearn demographic_parity_ratio (threshold >= 0.80)
+- Equalized Odds via Fairlearn equalized_odds_difference (threshold <= 0.10)
+- Chi-squared statistical significance test (scipy)
 
 Uses REAL protected attributes from the dataset:
 - CODE_GENDER (0=Female, 1=Male)
@@ -16,12 +16,22 @@ Uses REAL protected attributes from the dataset:
 """
 
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 from app.tools.base import BaseTool
 from app.tools.model_loader import artifacts
+
+from fairlearn.metrics import (
+    MetricFrame,
+    demographic_parity_ratio,
+    equalized_odds_difference,
+    selection_rate,
+    true_positive_rate,
+    false_positive_rate,
+    count,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +66,13 @@ class FairnessValidatorInput(BaseModel):
 
 class FairnessValidator(BaseTool):
     """
-    Per-applicant fairness validator using legally-grounded metrics.
+    Per-applicant fairness validator using Fairlearn metrics.
 
     Finds the K nearest neighbors to the applicant in X_test,
     then checks model outcomes across protected attribute groups
-    using the four-fifths rule (Disparate Impact Ratio >= 0.80),
-    equalized odds, and chi-squared significance testing.
+    using Fairlearn's demographic_parity_ratio (>= 0.80),
+    equalized_odds_difference (<= 0.10), and scipy chi-squared
+    significance testing.
 
     Protected attributes checked:
     - Gender (CODE_GENDER): real values from dataset
@@ -76,9 +87,9 @@ class FairnessValidator(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Validates credit decisions for demographic fairness using the "
-            "four-fifths rule (Disparate Impact Ratio), equalized odds, and "
-            "chi-squared significance testing across gender, age, and marital status."
+            "Validates credit decisions for demographic fairness using Fairlearn's "
+            "Disparate Impact Ratio, Equalized Odds, and chi-squared significance "
+            "testing across gender, age, and marital status."
         )
 
     @property
@@ -113,32 +124,34 @@ class FairnessValidator(BaseTool):
 
             # Model predictions on neighborhood
             y_pred = artifacts.model.predict(X_neighbors)
-            y_prob = artifacts.model.predict_proba(X_neighbors)[:, 1]
             y_actual = y_neighbors.values
+
+            # Approval = not predicted to default
+            y_approval = (1 - y_pred).astype(int)
 
             # Extract REAL protected attributes from the full dataset
             X_full = artifacts.X_test.iloc[neighbor_idx]
 
             # --- Gender analysis (CODE_GENDER) ---
             gender_groups = self._extract_gender(X_full)
-            gender_result = self._analyze_attribute(
-                y_pred, y_actual, gender_groups,
+            gender_result = self._analyze_with_fairlearn(
+                y_approval, y_actual, gender_groups,
                 {0: "Female", 1: "Male"},
                 "Gender"
             )
 
             # --- Age group analysis ---
             age_groups = self._extract_age_groups(X_full)
-            age_result = self._analyze_attribute(
-                y_pred, y_actual, age_groups,
+            age_result = self._analyze_with_fairlearn(
+                y_approval, y_actual, age_groups,
                 {0: "Young (<35)", 1: "Middle (35-55)", 2: "Senior (55+)"},
                 "Age"
             )
 
             # --- Marital status analysis ---
             marital_groups = self._extract_marital_status(X_full)
-            marital_result = self._analyze_attribute(
-                y_pred, y_actual, marital_groups,
+            marital_result = self._analyze_with_fairlearn(
+                y_approval, y_actual, marital_groups,
                 {0: "Single/Unaccompanied", 1: "Married", 2: "Other"},
                 "Marital Status"
             )
@@ -172,7 +185,7 @@ class FairnessValidator(BaseTool):
                 "age_group_metrics": age_result,
                 "marital_status_metrics": marital_result,
                 "message": (
-                    f"Fairness analysis on {neighborhood_size} similar applicants: "
+                    f"Fairness analysis (Fairlearn) on {neighborhood_size} similar applicants: "
                     + ("No significant bias detected — decision is demographically fair"
                        if all_pass
                        else "Potential bias detected — flagged for human review")
@@ -183,13 +196,171 @@ class FairnessValidator(BaseTool):
             logger.error(f"Fairness validation failed: {e}")
             return {"success": False, "error": str(e), "message": f"Fairness validation failed: {str(e)}"}
 
-    # ── Protected attribute extraction ──────────────────────────────
+    # -- Core fairness analysis using Fairlearn --------------------------
+
+    def _analyze_with_fairlearn(
+        self,
+        y_approval: np.ndarray,
+        y_actual: np.ndarray,
+        groups: np.ndarray,
+        label_map: Dict[int, str],
+        attr_name: str,
+    ) -> Dict[str, Any]:
+        """
+        Analyze fairness for one protected attribute using Fairlearn.
+
+        Returns:
+            Dict with disparate_impact_ratio, equalized_odds, group details,
+            statistical significance, and overall pass/fail.
+        """
+        # Map numeric group IDs to readable labels
+        sensitive_labels = np.array([label_map.get(g, f"Group_{g}") for g in groups])
+
+        # Filter out groups smaller than MIN_GROUP_SIZE
+        unique_labels, label_counts = np.unique(sensitive_labels, return_counts=True)
+        valid_labels = set(unique_labels[label_counts >= MIN_GROUP_SIZE])
+
+        if len(valid_labels) < 2:
+            return {
+                "group_approval_rates": {},
+                "disparate_impact_ratio": None,
+                "equalized_odds_diff": None,
+                "chi_squared_p_value": None,
+                "statistically_significant": False,
+                "pass": True,
+                "note": f"Insufficient group diversity for {attr_name} analysis",
+            }
+
+        # Build mask for valid groups only
+        valid_mask = np.array([l in valid_labels for l in sensitive_labels])
+        y_app_valid = y_approval[valid_mask]
+        y_act_valid = y_actual[valid_mask]
+        sf_valid = sensitive_labels[valid_mask]
+
+        # --- Fairlearn MetricFrame for per-group stats ---
+        mf = MetricFrame(
+            metrics={
+                "approval_rate": selection_rate,
+                "count": count,
+            },
+            y_true=y_act_valid,
+            y_pred=y_app_valid,
+            sensitive_features=sf_valid,
+        )
+
+        group_stats = {}
+        for label, row in mf.by_group.iterrows():
+            group_stats[label] = {
+                "count": int(row["count"]),
+                "approval_rate": round(float(row["approval_rate"]), 4),
+            }
+
+        # --- Disparate Impact Ratio via Fairlearn ---
+        dir_value = demographic_parity_ratio(
+            y_true=y_act_valid,
+            y_pred=y_app_valid,
+            sensitive_features=sf_valid,
+        )
+        dir_value = round(float(dir_value), 4)
+        dir_pass = dir_value >= DIR_THRESHOLD
+
+        # Identify highest/lowest groups
+        rates = {k: v["approval_rate"] for k, v in group_stats.items()}
+        highest_group = max(rates, key=rates.get)
+        lowest_group = min(rates, key=rates.get)
+
+        # --- Equalized Odds via Fairlearn ---
+        eo_diff = self._safe_equalized_odds(y_act_valid, y_app_valid, sf_valid)
+        eo_pass = eo_diff <= EO_THRESHOLD
+
+        # Per-group TPR/FPR via Fairlearn MetricFrame
+        tpr_fpr_metrics = {}
+        try:
+            eo_frame = MetricFrame(
+                metrics={
+                    "true_positive_rate": true_positive_rate,
+                    "false_positive_rate": false_positive_rate,
+                },
+                y_true=y_act_valid,
+                y_pred=y_app_valid,
+                sensitive_features=sf_valid,
+            )
+            tpr_by_group = {}
+            fpr_by_group = {}
+            for label, row in eo_frame.by_group.iterrows():
+                tpr_val = row.get("true_positive_rate")
+                fpr_val = row.get("false_positive_rate")
+                if pd.notna(tpr_val):
+                    tpr_by_group[label] = round(float(tpr_val), 4)
+                if pd.notna(fpr_val):
+                    fpr_by_group[label] = round(float(fpr_val), 4)
+
+            tpr_vals = list(tpr_by_group.values())
+            fpr_vals = list(fpr_by_group.values())
+            tpr_diff = (max(tpr_vals) - min(tpr_vals)) if len(tpr_vals) >= 2 else 0.0
+            fpr_diff = (max(fpr_vals) - min(fpr_vals)) if len(fpr_vals) >= 2 else 0.0
+
+            tpr_fpr_metrics = {
+                "tpr_by_group": tpr_by_group,
+                "fpr_by_group": fpr_by_group,
+                "max_tpr_diff": round(tpr_diff, 4),
+                "max_fpr_diff": round(fpr_diff, 4),
+                "max_equalized_odds_diff": round(eo_diff, 4),
+                "pass": eo_pass,
+            }
+        except Exception as e:
+            logger.warning(f"Fairlearn TPR/FPR MetricFrame failed for {attr_name}: {e}")
+            tpr_fpr_metrics = {
+                "tpr_by_group": {},
+                "fpr_by_group": {},
+                "max_tpr_diff": 0.0,
+                "max_fpr_diff": 0.0,
+                "max_equalized_odds_diff": round(eo_diff, 4),
+                "pass": eo_pass,
+            }
+
+        # --- Chi-squared test (scipy — not in Fairlearn) ---
+        chi2_p = self._chi_squared_test(y_app_valid, sf_valid)
+        significant = chi2_p is not None and chi2_p < SIGNIFICANCE_LEVEL
+
+        # Overall: fail only if DIR fails AND the difference is statistically significant
+        attr_pass = dir_pass or not significant
+
+        return {
+            "group_approval_rates": group_stats,
+            "disparate_impact_ratio": dir_value,
+            "highest_group": highest_group,
+            "lowest_group": lowest_group,
+            "equalized_odds": tpr_fpr_metrics,
+            "chi_squared_p_value": round(chi2_p, 4) if chi2_p is not None else None,
+            "statistically_significant": significant,
+            "pass": attr_pass,
+        }
+
+    def _safe_equalized_odds(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        sensitive_features: np.ndarray,
+    ) -> float:
+        """Compute equalized_odds_difference, handling edge cases."""
+        try:
+            eo = equalized_odds_difference(
+                y_true=y_true,
+                y_pred=y_pred,
+                sensitive_features=sensitive_features,
+            )
+            return round(float(eo), 4)
+        except Exception as e:
+            logger.warning(f"Fairlearn equalized_odds_difference failed: {e}")
+            return 0.0
+
+    # -- Protected attribute extraction ----------------------------------
 
     def _extract_gender(self, X: pd.DataFrame) -> np.ndarray:
         """Extract real gender from CODE_GENDER column."""
         if "CODE_GENDER" in X.columns:
             return X["CODE_GENDER"].values.astype(int)
-        # Fallback: unknown — return all same group (will skip analysis)
         return np.zeros(len(X), dtype=int)
 
     def _extract_age_groups(self, X: pd.DataFrame) -> np.ndarray:
@@ -199,7 +370,7 @@ class FairnessValidator(BaseTool):
         elif "DAYS_BIRTH" in X.columns:
             age = (-X["DAYS_BIRTH"].values) / 365.25
         else:
-            return np.ones(len(X), dtype=int)  # all middle — will skip
+            return np.ones(len(X), dtype=int)
 
         groups = np.zeros(len(age), dtype=int)
         groups[age >= 35] = 1
@@ -221,143 +392,12 @@ class FairnessValidator(BaseTool):
         groups[(raw == 0) | (raw == 1)] = 1  # Married/Civil marriage
         return groups
 
-    # ── Core fairness analysis ──────────────────────────────────────
-
-    def _analyze_attribute(
-        self,
-        y_pred: np.ndarray,
-        y_actual: np.ndarray,
-        groups: np.ndarray,
-        label_map: Dict[int, str],
-        attr_name: str,
-    ) -> Dict[str, Any]:
-        """
-        Analyze fairness for one protected attribute.
-
-        Returns:
-            Dict with disparate_impact_ratio, equalized_odds, group details,
-            statistical significance, and overall pass/fail.
-        """
-        approval = (1 - y_pred).astype(int)
-
-        # Per-group stats
-        group_stats = {}
-        for gid, label in label_map.items():
-            mask = groups == gid
-            count = int(mask.sum())
-            if count < MIN_GROUP_SIZE:
-                continue
-            group_stats[label] = {
-                "count": count,
-                "approval_rate": round(float(approval[mask].mean()), 4),
-                "avg_default_prob": round(float(y_pred[mask].mean()), 4),
-            }
-
-        if len(group_stats) < 2:
-            return {
-                "group_approval_rates": group_stats,
-                "disparate_impact_ratio": None,
-                "equalized_odds_diff": None,
-                "chi_squared_p_value": None,
-                "statistically_significant": False,
-                "pass": True,
-                "note": f"Insufficient group diversity for {attr_name} analysis",
-            }
-
-        # Disparate Impact Ratio (four-fifths rule)
-        rates = {k: v["approval_rate"] for k, v in group_stats.items()}
-        max_rate = max(rates.values())
-        min_rate = min(rates.values())
-        highest_group = max(rates, key=rates.get)
-        lowest_group = min(rates, key=rates.get)
-
-        if max_rate == 0:
-            dir_value = 1.0
-        else:
-            dir_value = round(min_rate / max_rate, 4)
-
-        dir_pass = dir_value >= DIR_THRESHOLD
-
-        # Equalized Odds (TPR and FPR parity)
-        eo_result = self._equalized_odds(y_pred, y_actual, groups, label_map)
-        eo_pass = eo_result["pass"]
-
-        # Chi-squared test for statistical significance
-        chi2_p = self._chi_squared_test(approval, groups, label_map)
-        significant = chi2_p is not None and chi2_p < SIGNIFICANCE_LEVEL
-
-        # Overall: fail only if DIR fails AND the difference is statistically significant
-        # This avoids flagging small-sample noise as bias (Chen et al. insight)
-        attr_pass = dir_pass or not significant
-
-        return {
-            "group_approval_rates": group_stats,
-            "disparate_impact_ratio": dir_value,
-            "highest_group": highest_group,
-            "lowest_group": lowest_group,
-            "equalized_odds": eo_result,
-            "chi_squared_p_value": round(chi2_p, 4) if chi2_p is not None else None,
-            "statistically_significant": significant,
-            "pass": attr_pass,
-        }
-
-    def _equalized_odds(
-        self,
-        y_pred: np.ndarray,
-        y_actual: np.ndarray,
-        groups: np.ndarray,
-        label_map: Dict[int, str],
-    ) -> Dict[str, Any]:
-        """
-        Compute equalized odds: max difference in TPR and FPR across groups.
-        """
-        tpr_by_group = {}
-        fpr_by_group = {}
-
-        for gid, label in label_map.items():
-            mask = groups == gid
-            if mask.sum() < MIN_GROUP_SIZE:
-                continue
-
-            actual = y_actual[mask]
-            pred = y_pred[mask]
-
-            # TPR: rate of correctly predicting default among actual defaults
-            actual_pos = actual == 1
-            if actual_pos.sum() > 0:
-                tpr_by_group[label] = float(pred[actual_pos].mean())
-
-            # FPR: rate of falsely predicting default among actual non-defaults
-            actual_neg = actual == 0
-            if actual_neg.sum() > 0:
-                fpr_by_group[label] = float(pred[actual_neg].mean())
-
-        # Max differences
-        tpr_diff = 0.0
-        fpr_diff = 0.0
-        if len(tpr_by_group) >= 2:
-            tpr_vals = list(tpr_by_group.values())
-            tpr_diff = max(tpr_vals) - min(tpr_vals)
-        if len(fpr_by_group) >= 2:
-            fpr_vals = list(fpr_by_group.values())
-            fpr_diff = max(fpr_vals) - min(fpr_vals)
-
-        eo_diff = max(tpr_diff, fpr_diff)
-
-        return {
-            "tpr_by_group": {k: round(v, 4) for k, v in tpr_by_group.items()},
-            "fpr_by_group": {k: round(v, 4) for k, v in fpr_by_group.items()},
-            "max_tpr_diff": round(tpr_diff, 4),
-            "max_fpr_diff": round(fpr_diff, 4),
-            "max_equalized_odds_diff": round(eo_diff, 4),
-            "pass": eo_diff <= EO_THRESHOLD,
-        }
+    # -- Chi-squared significance test (not in Fairlearn) ----------------
 
     def _chi_squared_test(
         self,
         approval: np.ndarray,
-        groups: np.ndarray,
-        label_map: Dict[int, str],
+        sensitive_labels: np.ndarray,
     ) -> Optional[float]:
         """
         Chi-squared test of independence between group membership and approval.
@@ -366,10 +406,10 @@ class FairnessValidator(BaseTool):
         try:
             from scipy.stats import chi2_contingency
 
-            # Build contingency table: rows=groups, cols=[rejected, approved]
+            unique_labels = np.unique(sensitive_labels)
             table = []
-            for gid, label in label_map.items():
-                mask = groups == gid
+            for label in unique_labels:
+                mask = sensitive_labels == label
                 if mask.sum() < MIN_GROUP_SIZE:
                     continue
                 approved = int(approval[mask].sum())
@@ -389,7 +429,7 @@ class FairnessValidator(BaseTool):
             logger.warning(f"Chi-squared test failed: {e}")
             return None
 
-    # ── Neighborhood finding ────────────────────────────────────────
+    # -- Neighborhood finding --------------------------------------------
 
     def _build_applicant_vector(self, applicant_data: dict, X_test: pd.DataFrame) -> np.ndarray:
         """Build feature vector aligned with X_test columns, using medians for missing."""
@@ -415,7 +455,6 @@ class FairnessValidator(BaseTool):
 
         distances = np.sqrt(((X_scaled - app_scaled) ** 2).sum(axis=1))
 
-        # Adaptive neighborhood: at least MIN_NEIGHBORHOOD, default DEFAULT_NEIGHBORHOOD
         k = max(MIN_NEIGHBORHOOD, min(DEFAULT_NEIGHBORHOOD, len(X_test)))
         neighbor_idx = np.argpartition(distances, k)[:k]
         return neighbor_idx
