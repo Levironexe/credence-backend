@@ -47,6 +47,7 @@ from app.ai.nodes.credit_scoring import credit_scoring_node
 from app.ai.nodes.explainability import explainability_node
 from app.ai.nodes.fairness_check import fairness_check_node
 from app.ai.nodes.counterfactual_generation import counterfactual_generation_node
+from app.ai.nodes.rag_context import rag_context_node
 from app.ai.nodes.fetch_merchant_data import fetch_merchant_data_node
 from app.ai.nodes.metric_extraction import metric_extraction_node
 from app.ai.state import LoanAssessmentState, QueryIntent
@@ -120,6 +121,10 @@ Rules:
 - Never guess financial calculations.
 - Always rely on tool results for credit scoring or analysis.
 - If multiple tools are needed, call them in logical order.
+
+IMPORTANT - Tool usage guidance:
+- Use lending_knowledge_retriever for ANY question about Vietnamese lending regulations, SBV circulars, laws, policies, CIC credit scoring, loan classification, capital adequacy, compliance, or best practices. This tool queries our internal knowledge base for authoritative answers.
+- Use financial_statement_analyzer to analyze financial ratios and metrics from a borrower's statements.
 
 IMPORTANT - Do NOT call these tools (they are handled by dedicated nodes):
 - NEVER call data_completeness_checker — data completeness was already checked
@@ -287,7 +292,7 @@ Correct tool usage > reasoning > formatting.
         classify → fetch_merchant_data → document_ingestion → data_completeness
         → planning → tool_selection → execute_tools → credit_scoring
         → explainability → fairness_check → counterfactual_generation (conditional)
-        → analysis → response
+        → rag_context → analysis → response
 
         Returns:
             Compiled StateGraph ready for execution
@@ -329,6 +334,8 @@ Correct tool usage > reasoning > formatting.
             partial(fetch_merchant_data_node, llm=self.llm, tools=self.tools))
         workflow.add_node("metric_extraction",
             partial(metric_extraction_node, llm=self.llm))
+        workflow.add_node("rag_context",
+            partial(rag_context_node, llm=self.llm, tools=self.tools))
 
         # ── Entry point ──────────────────────────────────────────
         workflow.set_entry_point("classify")
@@ -394,13 +401,15 @@ Correct tool usage > reasoning > formatting.
             "fairness_check",
             route_after_fairness_check,
             {
-                "approved": "analysis",
+                "approved": "rag_context",
                 "rejected": "counterfactual_generation"
             }
         )
 
-        workflow.add_edge("counterfactual_generation", "analysis")
+        workflow.add_edge("counterfactual_generation", "rag_context")
 
+        # ── RAG context → analysis → response ────────────────────
+        workflow.add_edge("rag_context", "analysis")
         # ── Final nodes ───────────────────────────────────────────
         workflow.add_edge("analysis",  "response")
         workflow.add_edge("response",  END)
@@ -658,6 +667,7 @@ Correct tool usage > reasoning > formatting.
             "explainability": "Analyzing score factors",
             "fairness_check": "Checking lending fairness",
             "counterfactual_generation": "Generating improvement paths",
+            "rag_context": "Retrieving lending regulations",
             "analysis": "Synthesizing findings",
             "response": "Generating report",
         }

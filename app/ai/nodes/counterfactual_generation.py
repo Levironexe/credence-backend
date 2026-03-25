@@ -126,13 +126,83 @@ async def counterfactual_generation_node(
             if effort_desc:
                 cf_lines.append(f"*{effort_desc}*")
             cf_lines.append("")
+
+            # Build brief causal intervention summary in natural advisory tone
+            base_changes = [c for c in changes if not c.get("is_derived")]
+            interventions = []
+            for change in base_changes:
+                feat = change.get("feature", "")
+                old_val = change.get("current", "?")
+                new_val = change.get("suggested", "?")
+                old_num = _parse_numeric(old_val)
+                new_num = _parse_numeric(new_val)
+
+                if old_num is None or new_num is None:
+                    desc = change.get("effort_description", "")
+                    if desc:
+                        interventions.append(desc)
+                    continue
+
+                delta = new_num - old_num
+
+                # Natural advisory language per feature
+                if feat == "AMT_CREDIT":
+                    interventions.append(
+                        f"Consider applying for a smaller loan — bringing it down to "
+                        f"${new_num:,.0f} would significantly improve your profile"
+                    )
+                elif feat == "AMT_GOODS_PRICE":
+                    interventions.append(
+                        f"Looking at a more affordable option (around ${new_num:,.0f}) "
+                        f"would help strengthen this application"
+                    )
+                elif feat == "AMT_ANNUITY":
+                    if delta < 0:
+                        interventions.append(
+                            f"Extending the repayment term to lower monthly payments "
+                            f"to around ${new_num:,.0f} would ease the debt burden"
+                        )
+                    else:
+                        interventions.append(
+                            f"Opting for a shorter repayment term (${new_num:,.0f}/month) "
+                            f"shows stronger repayment capacity"
+                        )
+                elif feat == "AMT_INCOME_TOTAL":
+                    interventions.append(
+                        f"If annual income can reach ${new_num:,.0f} — through a raise, "
+                        f"side income, or a co-borrower — the application becomes much stronger"
+                    )
+                elif feat == "DAYS_EMPLOYED" or "Employment" in change.get("label", ""):
+                    interventions.append(
+                        f"Staying in the current role longer ({new_val}) would demonstrate "
+                        f"job stability — consider reapplying after building more tenure"
+                    )
+                elif feat == "bureau_debt_sum":
+                    interventions.append(
+                        f"Paying down existing debt to around ${new_num:,.0f} before applying "
+                        f"would free up capacity and improve the credit profile"
+                    )
+                elif feat == "bureau_active_count":
+                    interventions.append(
+                        f"Closing {int(old_num - new_num)} unused credit line(s) simplifies "
+                        f"the credit profile and reduces perceived risk"
+                    )
+                else:
+                    # Generic fallback
+                    if delta > 0:
+                        interventions.append(f"Improving {change.get('label', feat).lower()} to {new_val}")
+                    else:
+                        interventions.append(f"Bringing {change.get('label', feat).lower()} down to {new_val}")
+
+            if interventions:
+                cf_lines.append("**What to do:** " + ". ".join(interventions) + ".")
+                cf_lines.append("")
+
             cf_lines.append("| Action | Current | Target | Effort |")
             cf_lines.append("|--------|---------|--------|--------|")
 
             # Base feature changes first
-            for change in changes:
-                if change.get("is_derived"):
-                    continue
+            for change in base_changes:
                 label = change.get("label", change.get("feature", "?"))
                 old_val = change.get("current", "?")
                 new_val = change.get("suggested", "?")

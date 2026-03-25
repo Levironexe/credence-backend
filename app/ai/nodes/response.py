@@ -33,6 +33,9 @@ async def response_node(state: LoanAssessmentState, llm) -> Dict[str, Any]:
         # Check if counterfactuals are available (only for declined applicants)
         has_counterfactuals = credit_score < 670 and bool(state.get("counterfactuals"))
 
+        # --- RAG context (retrieved by rag_context_node) ---
+        rag_context = state.get("rag_context", "")
+
         # Use different prompt based on whether tools were used
         if tools_used:
             # Build the counterfactual section instruction
@@ -147,7 +150,22 @@ Render as a table:
 | Conditions | (if approved: what to verify; if declined: why) |
 | Monitoring | (if approved: review frequency recommendation) |
 {counterfactual_section}
+{f"""
+---
 
+## {"7" if has_counterfactuals else "6"}. Regulatory Context
+
+Based on the retrieved lending regulations, provide 2-4 bullet points citing specific Vietnamese regulations relevant to this applicant's situation:
+- Loan classification group under Circular 11/2021 based on their risk level
+- Applicable provisioning rate
+- Any relevant SBV lending limits or capital adequacy requirements
+- Relevant consumer protection or compliance requirements
+
+Use the regulatory context below as your source. If no context is provided, skip this section entirely.
+
+**Retrieved Regulatory Context:**
+{rag_context}
+""" if rag_context else ""}
 ---
 
 **STYLE RULES:**
@@ -155,8 +173,7 @@ Render as a table:
 - Use tables extensively — loan officers scan tables, not paragraphs
 - Keep text between tables to 1-2 sentences max
 - No filler text, no preamble, no "In conclusion..."
-- Do NOT add sections not listed above
-- Do NOT add a Regulatory Notes or Methodology section
+- Do NOT add sections not in this template{" (except Regulatory Context which is data-driven)" if rag_context else ""}
 - Your FIRST output character MUST be "#" (the heading). No text before it.
 - Start directly with "# Loan Assessment Report"
 - Use USD ($) for all monetary values

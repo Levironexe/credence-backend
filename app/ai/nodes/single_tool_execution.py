@@ -69,7 +69,17 @@ async def single_tool_execution_node(state: LoanAssessmentState, llm, tools) -> 
 
             # Format the result into a natural response
             tool_result_message = result["messages"][-1]
-            summary_prompt = f"""The {tool_name} tool was executed. Summarize the results in a clear, concise way for the user."""
+            if tool_name == "lending_knowledge_retriever":
+                summary_prompt = (
+                    "The lending knowledge base was queried. Synthesize the retrieved documents into a clear, "
+                    "authoritative answer for the loan officer. Cite specific regulations, laws, or circulars "
+                    "(e.g., 'Under Law 32/2024, Article X...' or 'Per Circular 11/2021...'). "
+                    "Write for a loan officer with 5+ years of experience — professional, concise, actionable. "
+                    "NEVER mention 'RAG', 'vector database', 'embeddings', or 'knowledge base' — just present "
+                    "the information as authoritative lending guidance."
+                )
+            else:
+                summary_prompt = f"""The {tool_name} tool was executed. Summarize the results in a clear, concise way for the user."""
 
             final_response = await llm.ainvoke([
                 SystemMessage(content=summary_prompt),

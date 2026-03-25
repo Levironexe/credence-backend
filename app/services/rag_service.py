@@ -2,9 +2,10 @@
 RAG Service for Lending Knowledge Base
 
 Provides retrieval-augmented generation for lending regulations, policies, and best practices.
-Uses pgvector + OpenAI embeddings for semantic search.
+Uses pgvector + OpenRouter embeddings (Perplexity pplx-embed-v1-0.6b) for semantic search.
 """
 
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 from langchain_openai import OpenAIEmbeddings
@@ -36,29 +37,51 @@ class RAGService:
         self.vectorstore = None
         self._initialized = False
 
+    def _get_connection_string(self) -> str:
+        """Build pgvector connection string from DATABASE_URL."""
+        db_url = settings.database_url
+        if not db_url:
+            return (
+                f"postgresql+psycopg://{settings.database_user}:{settings.database_password}"
+                f"@{settings.database_host}:{settings.database_port}/{settings.database_name}"
+            )
+
+        # Switch from asyncpg to psycopg driver
+        conn = db_url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
+        if not conn.startswith("postgresql+psycopg://"):
+            conn = db_url.replace("postgresql://", "postgresql+psycopg://")
+
+        return conn
+
     async def initialize(self):
         """Initialize embeddings and vector store."""
         if self._initialized:
             return
 
         try:
-            # Initialize OpenAI embeddings
+            # Initialize embeddings via OpenRouter (OpenAI-compatible API)
+            # Perplexity pplx-embed-v1-0.6b: 1024 dims, $0.004/M tokens
             self.embeddings = OpenAIEmbeddings(
                 model=settings.embedding_model,
-                dimensions=settings.embedding_dimensions
+                api_key=settings.openrouter_api_key,
+                openai_api_base="https://openrouter.ai/api/v1",
+                check_embedding_ctx_length=False,
+                tiktoken_enabled=False,
             )
 
-            # Initialize pgvector store
-            connection_string = (
-                f"postgresql://{settings.database_user}:{settings.database_password}"
-                f"@{settings.database_host}:{settings.database_port}/{settings.database_name}"
-            )
+            connection_string = self._get_connection_string()
+            host_info = connection_string.split('@')[1] if '@' in connection_string else 'local'
+            logger.info(f"Connecting pgvector to: {host_info}")
 
+            # Use sync mode — PGVector sync works reliably with psycopg
+            # Async methods are wrapped with asyncio.to_thread
             self.vectorstore = PGVector(
                 connection=connection_string,
                 embeddings=self.embeddings,
                 collection_name="lending_knowledge",
-                use_jsonb=True
+                use_jsonb=True,
+                create_extension=False,
+                engine_args={"connect_args": {"prepare_threshold": 0}},
             )
 
             self._initialized = True
@@ -86,23 +109,25 @@ class RAGService:
         Returns:
             List of Document objects with content and metadata
         """
-        
-        
         if not self._initialized:
             await self.initialize()
 
         k = k or settings.rag_retrieval_k
 
         try:
-            # Perform similarity search
             if filter_metadata:
-                docs = await self.vectorstore.asimilarity_search(
+                docs = await asyncio.to_thread(
+                    self.vectorstore.similarity_search,
                     query,
                     k=k,
-                    filter=filter_metadata
+                    filter=filter_metadata,
                 )
             else:
-                docs = await self.vectorstore.asimilarity_search(query, k=k)
+                docs = await asyncio.to_thread(
+                    self.vectorstore.similarity_search,
+                    query,
+                    k=k,
+                )
 
             logger.info(f"Retrieved {len(docs)} documents for query: {query[:100]}")
             return docs
@@ -134,7 +159,11 @@ class RAGService:
         k = k or settings.rag_retrieval_k
 
         try:
-            results = await self.vectorstore.asimilarity_search_with_score(query, k=k)
+            results = await asyncio.to_thread(
+                self.vectorstore.similarity_search_with_score,
+                query,
+                k=k,
+            )
 
             # Filter by score threshold
             filtered = [
@@ -169,7 +198,10 @@ class RAGService:
             await self.initialize()
 
         try:
-            ids = await self.vectorstore.aadd_documents(documents)
+            ids = await asyncio.to_thread(
+                self.vectorstore.add_documents,
+                documents,
+            )
             logger.info(f"Added {len(ids)} documents to knowledge base")
             return ids
 

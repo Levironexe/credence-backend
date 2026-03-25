@@ -20,7 +20,8 @@ CLASSIFICATION_PROMPT = """You are an intelligent query classifier for SME loan 
 **2. single_tool**
 - Query needs EXACTLY one tool to answer
 - User provides some data but wants a single specific analysis
-- Examples: "Check data completeness for: revenue=120M, loan=300M", "Calculate credit score with these metrics: ..."
+- **IMPORTANT: Questions about lending regulations, policies, laws, circulars, SBV rules, credit scoring methodology, CIC scores, compliance requirements, or best practices should use lending_knowledge_retriever** — even if they look like "general questions". The knowledge base has authoritative, institution-specific answers.
+- Examples: "Check data completeness for: revenue=120M, loan=300M", "Calculate credit score with these metrics: ...", "What are the lending limits under Law 32?", "What is the CIC credit score range?", "What does Circular 11 say about loan classification?", "What are the provisioning rates?", "How does the Credence Credit Engine score borrowers?", "What are the capital adequacy requirements?"
 - Tool options: credit_score_model, data_completeness_checker, financial_statement_analyzer, shap_explainer, counterfactual_generator, lending_knowledge_retriever
 
 **3. re_assessment**

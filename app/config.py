@@ -26,7 +26,11 @@ class Settings(BaseSettings):
     # AI Gateway (for LLM API calls)
     ai_gateway_api_key: str = ""
 
-    # OpenRouter API Key (all LLM calls route through OpenRouter)
+    # LLM API Keys (provider-specific)
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    google_api_key: str = ""
+    xai_api_key: str = ""
     openrouter_api_key: str = ""
 
     # Rate Limiting
@@ -53,8 +57,8 @@ class Settings(BaseSettings):
     redis_url: str = ""
 
     # RAG & Embeddings (for lending knowledge base)
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimensions: int = 1536
+    embedding_model: str = "perplexity/pplx-embed-v1-0.6b"
+    embedding_dimensions: int = 1024
     rag_chunk_size: int = 512
     rag_chunk_overlap: int = 100
     rag_retrieval_k: int = 5
