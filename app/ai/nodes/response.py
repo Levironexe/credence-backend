@@ -192,20 +192,20 @@ Use the regulatory context below as your source. If no context is provided, skip
 
 Do NOT use rigid templates or empty sections. Just have a natural conversation about their query."""
 
-        # Filter messages: only pass user query + data messages to avoid the LLM
-        # echoing counterfactual/analysis AIMessages as if they were its own prior response.
-        # Keep: HumanMessage (user query), SystemMessage, and AIMessages that contain
-        # structured data markers like [XGBoost], [SHAP], [Fairness], [Counterfactual]
+        # Filter messages: only pass user query + data messages to minimize tokens.
+        # Skip SystemMessage (the response_prompt already has everything needed).
+        # Skip non-data AIMessages to avoid the LLM echoing them.
         from langchain_core.messages import BaseMessage
         filtered_messages = []
         for msg in messages:
-            if isinstance(msg, (SystemMessage, HumanMessage)):
+            if isinstance(msg, HumanMessage):
                 filtered_messages.append(msg)
             elif isinstance(msg, AIMessage):
                 content = msg.content if isinstance(msg.content, str) else ""
                 # Only keep data-bearing AIMessages (injected by pipeline nodes)
                 if any(marker in content for marker in [
                     "[XGBoost", "[SHAP", "[Fairness", "[Counterfactual",
+                    "[Regulatory Context",
                     "ML Model Result", "Feature Importance", "Validation Result",
                 ]):
                     # Wrap as HumanMessage so the LLM doesn't treat it as its own prior output

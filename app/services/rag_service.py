@@ -3,16 +3,20 @@ RAG Service for Lending Knowledge Base
 
 Provides retrieval-augmented generation for lending regulations, policies, and best practices.
 Uses pgvector + OpenRouter embeddings (Perplexity pplx-embed-v1-0.6b) for semantic search.
+
+Retrieval uses raw async SQL via the app's existing asyncpg connection pool
+(not a separate sync psycopg pool) to avoid connection exhaustion on Supabase.
 """
 
-import asyncio
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from langchain.docstore.document import Document
+from sqlalchemy import text
 from app.config import settings
-from app.services.cache_service import cached, cache_service
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ class RAGService:
 
     def __init__(self):
         self.embeddings = None
-        self.vectorstore = None
+        self.vectorstore = None  # Only used for add_documents (ingestion)
         self._initialized = False
 
     def _get_connection_string(self) -> str:
@@ -69,19 +73,25 @@ class RAGService:
                 tiktoken_enabled=False,
             )
 
+            # PGVector is kept for add_documents (ingestion script only).
+            # Retrieval uses raw async SQL via the app's asyncpg pool.
             connection_string = self._get_connection_string()
             host_info = connection_string.split('@')[1] if '@' in connection_string else 'local'
             logger.info(f"Connecting pgvector to: {host_info}")
 
-            # Use sync mode — PGVector sync works reliably with psycopg
-            # Async methods are wrapped with asyncio.to_thread
             self.vectorstore = PGVector(
                 connection=connection_string,
                 embeddings=self.embeddings,
                 collection_name="lending_knowledge",
                 use_jsonb=True,
                 create_extension=False,
-                engine_args={"connect_args": {"prepare_threshold": 0}},
+                engine_args={
+                    "pool_size": 1,
+                    "max_overflow": 0,
+                    "pool_pre_ping": True,
+                    "pool_recycle": 300,
+                    "connect_args": {"prepare_threshold": 0},
+                },
             )
 
             self._initialized = True
@@ -91,7 +101,6 @@ class RAGService:
             logger.error(f"Failed to initialize RAG service: {e}")
             raise
 
-    @cached("rag_retrieve", ttl=1800)  # Cache for 30 minutes
     async def retrieve(
         self,
         query: str,
@@ -100,6 +109,9 @@ class RAGService:
     ) -> List[Document]:
         """
         Retrieve relevant documents from knowledge base.
+
+        Uses raw async SQL via the app's existing asyncpg pool to avoid
+        connection conflicts with Supabase's PgBouncer pooler.
 
         Args:
             query: Search query
@@ -115,19 +127,43 @@ class RAGService:
         k = k or settings.rag_retrieval_k
 
         try:
-            if filter_metadata:
-                docs = await asyncio.to_thread(
-                    self.vectorstore.similarity_search,
-                    query,
-                    k=k,
-                    filter=filter_metadata,
-                )
-            else:
-                docs = await asyncio.to_thread(
-                    self.vectorstore.similarity_search,
-                    query,
-                    k=k,
-                )
+            logger.info(f"Starting similarity search (k={k}) for: {query[:80]}")
+
+            # Embed the query
+            query_embedding = await self.embeddings.aembed_query(query)
+
+            # Use the app's existing async engine to run cosine similarity SQL
+            from app.database import engine as async_engine
+
+            # langchain_postgres stores embeddings in langchain_pg_embedding table
+            # with collection referenced via langchain_pg_collection.
+            # Use cast() to avoid asyncpg conflict with ::vector syntax.
+            embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+            sql = text(
+                "SELECT e.document, e.cmetadata, "
+                "1 - (e.embedding <=> cast(:embedding AS vector)) AS score "
+                "FROM langchain_pg_embedding e "
+                "JOIN langchain_pg_collection c ON e.collection_id = c.uuid "
+                "WHERE c.name = :collection "
+                "ORDER BY e.embedding <=> cast(:embedding AS vector) "
+                "LIMIT :k"
+            )
+
+            async with async_engine.connect() as conn:
+                result = await conn.execute(sql, {
+                    "embedding": embedding_str,
+                    "collection": "lending_knowledge",
+                    "k": k,
+                })
+                rows = result.fetchall()
+
+            docs = []
+            for row in rows:
+                content = row[0] or ""
+                metadata = row[1] if row[1] else {}
+                if isinstance(metadata, str):
+                    metadata = json.loads(metadata)
+                docs.append(Document(page_content=content, metadata=metadata))
 
             logger.info(f"Retrieved {len(docs)} documents for query: {query[:100]}")
             return docs
@@ -159,17 +195,39 @@ class RAGService:
         k = k or settings.rag_retrieval_k
 
         try:
-            results = await asyncio.to_thread(
-                self.vectorstore.similarity_search_with_score,
-                query,
-                k=k,
+            query_embedding = await self.embeddings.aembed_query(query)
+
+            from app.database import engine as async_engine
+
+            embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+            sql = text(
+                "SELECT e.document, e.cmetadata, "
+                "1 - (e.embedding <=> cast(:embedding AS vector)) AS score "
+                "FROM langchain_pg_embedding e "
+                "JOIN langchain_pg_collection c ON e.collection_id = c.uuid "
+                "WHERE c.name = :collection "
+                "ORDER BY e.embedding <=> cast(:embedding AS vector) "
+                "LIMIT :k"
             )
 
-            # Filter by score threshold
-            filtered = [
-                (doc, score) for doc, score in results
-                if score >= score_threshold
-            ]
+            async with async_engine.connect() as conn:
+                result = await conn.execute(sql, {
+                    "embedding": embedding_str,
+                    "collection": "lending_knowledge",
+                    "k": k,
+                })
+                rows = result.fetchall()
+
+            results = []
+            for row in rows:
+                content = row[0] or ""
+                metadata = row[1] if row[1] else {}
+                if isinstance(metadata, str):
+                    metadata = json.loads(metadata)
+                score = float(row[2])
+                results.append((Document(page_content=content, metadata=metadata), score))
+
+            filtered = [(doc, score) for doc, score in results if score >= score_threshold]
 
             logger.info(
                 f"Retrieved {len(filtered)}/{len(results)} documents "
@@ -187,6 +245,7 @@ class RAGService:
     ) -> List[str]:
         """
         Add documents to knowledge base.
+        Uses PGVector's sync add_documents (for ingestion script only).
 
         Args:
             documents: List of Document objects with page_content and metadata
@@ -197,6 +256,7 @@ class RAGService:
         if not self._initialized:
             await self.initialize()
 
+        import asyncio
         try:
             ids = await asyncio.to_thread(
                 self.vectorstore.add_documents,

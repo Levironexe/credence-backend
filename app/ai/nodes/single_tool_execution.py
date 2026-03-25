@@ -1,8 +1,8 @@
+import asyncio
 import logging
 from typing import Dict, Any
 from functools import partial
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.prebuilt import ToolNode
 from app.ai.state import LoanAssessmentState, QueryIntent
 
@@ -50,21 +50,24 @@ async def single_tool_execution_node(state: LoanAssessmentState, llm, tools) -> 
             }
 
         # Use LLM with this single tool bound to extract parameters
-        llm_with_tool = llm.bind_tools([tool_to_execute], tool_choice="required")
+        llm_with_tool = llm.bind_tools([tool_to_execute], tool_choice="any")
+
+        # Only pass the last user message to keep token usage low (50K tokens/min limit)
+        recent_messages = messages[-1:]
 
         # Ask LLM to call the tool with appropriate parameters
         tool_prompt = f"""Extract the parameters for the {tool_name} tool from the user's query and call it."""
 
         tool_call_message = await llm_with_tool.ainvoke([
             SystemMessage(content=tool_prompt),
-            *messages
+            *recent_messages
         ])
 
         # Execute the tool
         if hasattr(tool_call_message, 'tool_calls') and tool_call_message.tool_calls:
             # Create a minimal ToolNode with just this tool
             tool_node = ToolNode([tool_to_execute])
-            temp_state = {"messages": state["messages"] + [tool_call_message]}
+            temp_state = {"messages": list(recent_messages) + [tool_call_message]}
             result = await tool_node.ainvoke(temp_state)
 
             # Format the result into a natural response
@@ -81,12 +84,17 @@ async def single_tool_execution_node(state: LoanAssessmentState, llm, tools) -> 
             else:
                 summary_prompt = f"""The {tool_name} tool was executed. Summarize the results in a clear, concise way for the user."""
 
+            # Only pass user question + tool result for summarization (not full history)
+            # Truncate tool result to avoid exceeding rate limits (RAG results can be very large)
+            last_user_msg = recent_messages[-1]
+            result_content = tool_result_message.content if hasattr(tool_result_message, 'content') else str(tool_result_message)
+            if len(result_content) > 3000:
+                result_content = result_content[:3000] + "\n\n[... truncated for brevity]"
             final_response = await llm.ainvoke([
                 SystemMessage(content=summary_prompt),
-                *messages,
-                tool_call_message,
-                tool_result_message
-            ])
+                last_user_msg,
+                HumanMessage(content=f"Tool result:\n{result_content}"),
+            ], max_tokens=1024)
 
             return {
                 **state,

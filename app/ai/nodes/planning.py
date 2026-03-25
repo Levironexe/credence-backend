@@ -70,8 +70,10 @@ Your job: briefly note the assessment approach. Think through:
 Be concise — 3-5 bullet points. Internal notes only, not user-facing."""
 
         # Use astream so tokens appear in real-time as "Thinking" in the pipeline
+        # Limit to 512 tokens — planning is internal notes only
+        planning_llm = llm.bind(max_tokens=512)
         collected_content = ""
-        async for chunk in llm.astream([
+        async for chunk in planning_llm.astream([
             SystemMessage(content=planning_prompt),
             HumanMessage(content=f"Plan the assessment for this applicant request: {last_message}")
         ]):
