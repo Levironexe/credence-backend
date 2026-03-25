@@ -60,16 +60,19 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
 
         requires_tool = has_loan_data or has_amounts
 
+        # Only bind tools the LLM should actually select — dedicated nodes handle
+        # shap_explainer, fairness_validator, counterfactual_generator automatically
+        assessment_tools = [t for t in tools if t.name in (
+            "credit_score_model", "financial_statement_analyzer",
+            "data_completeness_checker", "lending_knowledge_retriever",
+        )]
+
         if requires_tool:
             logger.info(f"   🎯 Detected loan assessment query requiring tool usage (keywords: {has_loan_data}, amounts: {has_amounts})")
-            # Force tool usage by setting tool_choice to require it
-            llm_with_tools = llm.bind_tools(tools, tool_choice="any")
+            llm_with_tools = llm.bind_tools(assessment_tools, tool_choice="any")
         else:
             logger.info("    No specific loan data detected - tools optional")
-            # Let LLM decide
-            llm_with_tools = llm.bind_tools(tools)
-
-        logger.info(f"   LLM bound with tools: {llm_with_tools}")
+            llm_with_tools = llm.bind_tools(assessment_tools)
 
         tool_selection_prompt = """You are selecting tools for SME loan assessment.
 
@@ -99,18 +102,17 @@ async def tool_selection_node(state: LoanAssessmentState, llm, tools, testing_sy
 
 Make your tool selection now."""
 
-        # Build message list with profile context if selected
+        # Only pass last 2 messages (user query + planning output) to minimize tokens
+        recent = messages[-2:] if len(messages) > 2 else messages
+
         invoke_messages = [
-            SystemMessage(content=testing_system_prompt),
             SystemMessage(content=tool_selection_prompt),
         ]
         if selected_profile_id:
             invoke_messages.append(SystemMessage(
-                content=f"IMPORTANT: The loan officer has selected Applicant #{selected_profile_id} from the sidebar. "
-                        f"The applicant data has already been loaded from the database. "
-                        f"Proceed with financial analysis tools as needed."
+                content=f"Applicant #{selected_profile_id} data loaded from database. Proceed with analysis tools."
             ))
-        invoke_messages.extend(messages)
+        invoke_messages.extend(recent)
 
         response = await llm_with_tools.ainvoke(invoke_messages)
 
