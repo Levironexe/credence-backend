@@ -103,5 +103,8 @@ class LoanAssessmentState(TypedDict):
     selected_profile_id: str  # Applicant ID selected in frontend sidebar (empty = none)
     applicant_id: int  # Resolved DB applicant ID (0 = not a DB applicant)
 
+    # RAG knowledge context
+    rag_context: str  # Regulatory context retrieved from knowledge base for report generation
+
     # Final output
     final_response: str  # Generated credit assessment report (markdown format)
