@@ -332,4 +332,4 @@ The server starts at `http://localhost:8000`. API docs at `/docs`.
 
 ## License
 
-This project was built for the **Swin Hackathon 2025** by **Team ClaudeCodeMax**.
+This project was built for the **Swin Hackathon 2026** by **Team ClaudeCodeMax**.
